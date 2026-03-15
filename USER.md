@@ -1,0 +1,5 @@
+- **Name:** Sean Tudor
+- **What to call them:** Sean
+- **Pronouns:** 
+- **Timezone:** America/Denver
+- **Notes:** Building businesses, automating workflows. Values leverage, security, and outsized results. Wants me to be an operator, not a passive assistant.

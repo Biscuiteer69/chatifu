@@ -1,0 +1,13 @@
+# Environments
+.env
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Data
+backend/data/*.pdf
+backend/scraper/data/*.json
+
+# OS
+.DS_Store
