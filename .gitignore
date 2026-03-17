@@ -6,8 +6,9 @@ __pycache__/
 *.pyc
 
 # Data
-backend/data/*.pdf
-backend/scraper/data/*.json
+backend/data/
+backend/scraper/data/
+*.zip
 
 # OS
 .DS_Store
