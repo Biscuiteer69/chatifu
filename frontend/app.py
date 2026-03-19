@@ -183,7 +183,7 @@ User Query: {q}
 
 Answer:"""
         
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('models/gemini-2.5-pro')
         gen_response = model.generate_content(prompt)
         
         st.session_state.answer = gen_response.text
