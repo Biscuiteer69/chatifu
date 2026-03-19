@@ -58,6 +58,11 @@ except FileNotFoundError:
 
 # Initialize API clients
 if all([SUPABASE_URL, SUPABASE_KEY, GEMINI_KEY]):
+    # Strip any whitespace/newlines that might have snuck into the secrets
+    SUPABASE_URL = SUPABASE_URL.strip()
+    SUPABASE_KEY = SUPABASE_KEY.strip()
+    GEMINI_KEY = GEMINI_KEY.strip()
+    
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     genai.configure(api_key=GEMINI_KEY)
 else:
