@@ -1,7 +1,9 @@
 import streamlit as st
-import requests
 import base64
 import os
+from supabase import create_client, Client
+import google.generativeai as genai
+import fitz
 
 st.set_page_config(page_title="ChatIFU", page_icon="🩺", layout="wide", initial_sidebar_state="collapsed")
 
@@ -43,8 +45,24 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-API_URL = "http://localhost:8000/search"
-HIGHLIGHT_API_URL = "http://localhost:8000/highlight_pdf"
+# Load secrets directly in Streamlit
+try:
+    SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    SUPABASE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+except FileNotFoundError:
+    # Fallback to os.environ for local testing if secrets.toml isn't set up
+    SUPABASE_URL = os.environ.get("SUPABASE_URL")
+    SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Initialize API clients
+if all([SUPABASE_URL, SUPABASE_KEY, GEMINI_KEY]):
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    genai.configure(api_key=GEMINI_KEY)
+else:
+    st.error("Missing API Keys! Please configure secrets in Streamlit Cloud or local environment.")
+    st.stop()
 
 # Initialize session state for holding search results
 if "query" not in st.session_state:
@@ -60,6 +78,55 @@ if "pdf_bytes" not in st.session_state:
 if "pdf_page" not in st.session_state:
     st.session_state.pdf_page = 1
 
+def highlight_pdf(filename: str, text_to_highlight: str):
+    """Local Highlight Engine - replaces the backend call"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Try multiple possible locations
+    possible_paths = [
+        os.path.join(base_dir, "data", "ifus", filename),
+        os.path.join(base_dir, "..", "backend", "data", filename),
+        os.path.join(base_dir, "..", "backend", "data", "ifus", filename)
+    ]
+    
+    pdf_path = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            pdf_path = p
+            break
+            
+    if not pdf_path:
+        raise Exception(f"PDF {filename} not found on server. Tried: {possible_paths}")
+
+    doc = fitz.open(pdf_path)
+    search_term = text_to_highlight[:40].replace('\n', ' ').strip()
+    found_page = None
+
+    if search_term:
+        for page in doc:
+            text_instances = page.search_for(search_term)
+            if text_instances:
+                found_page = page.number # PyMuPDF pages are 0-indexed
+                for inst in text_instances:
+                    highlight = page.add_highlight_annot(inst)
+                    highlight.set_colors(stroke=(1, 1, 0)) # Yellow
+                    highlight.update()
+                break
+
+    pdf_bytes = doc.write()
+    doc.close()
+    return pdf_bytes, (found_page + 1) if found_page is not None else 1
+
+def load_highlighted_pdf(filename: str, text_to_highlight: str):
+    """Highlight and store the PDF bytes directly."""
+    try:
+        bytes_data, page_num = highlight_pdf(filename, text_to_highlight)
+        if bytes_data:
+            st.session_state.pdf_bytes = bytes_data
+            st.session_state.pdf_page = page_num
+    except Exception as e:
+        st.error(f"Failed to process PDF: {str(e)}")
+
 def perform_search():
     q = st.session_state.search_input
     if not q:
@@ -72,39 +139,62 @@ def perform_search():
     st.session_state.pdf_bytes = None
     
     try:
-        response = requests.post(API_URL, json={"query": q, "limit": 5}, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            st.session_state.answer = data.get("answer", "No answer generated.")
-            st.session_state.sources = data.get("results", [])
+        # 1. Generate Embedding
+        result = genai.embed_content(
+            model="models/gemini-embedding-001",
+            content=q,
+            task_type="retrieval_query",
+            output_dimensionality=768
+        )
+        query_embedding = result['embedding']
+        
+        # 2. Vector Search via Supabase RPC
+        response = supabase.rpc(
+            "match_documents",
+            {
+                "query_embedding": query_embedding,
+                "match_count": 5,
+                "filter": {}
+            }
+        ).execute()
+        
+        retrieved_docs = response.data
+        if not retrieved_docs:
+            st.session_state.answer = "No relevant IFU sections found."
+            return
             
-            # Auto-select the first PDF if available
-            if st.session_state.sources:
-                first_src = st.session_state.sources[0]
-                first_source = first_src.get('metadata', {}).get('source')
-                first_content = first_src.get('content', '')
-                if first_source:
-                    st.session_state.selected_pdf = first_source
-                    load_highlighted_pdf(first_source, first_content)
-        else:
-            st.session_state.answer = f"Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        st.session_state.answer = f"Connection failed: {str(e)}"
+        # 3. Synthesize Answer
+        context = "\\n\\n".join([f"Source [{i+1}] (File: {doc['metadata'].get('source', 'Unknown')}):\\n{doc['content']}" for i, doc in enumerate(retrieved_docs)])
+        
+        prompt = f"""You are a precise medical device assistant helping healthcare professionals.
+Answer the user's question based strictly on the provided IFU document excerpts below.
+If the answer is not explicitly contained in the excerpts, state that clearly. Do not guess.
+Use inline citations like [1] to refer to the source excerpts.
 
-def load_highlighted_pdf(filename: str, text_to_highlight: str):
-    """Hits the backend highlight API and stores the returned PDF bytes in session state."""
-    try:
-        response = requests.post(HIGHLIGHT_API_URL, json={"filename": filename, "text_to_highlight": text_to_highlight}, timeout=15)
-        if response.status_code == 200:
-            st.session_state.pdf_bytes = response.content
-            # Read the page number from custom header (default to 1)
-            page_header = response.headers.get("X-Found-Page", "1")
-            st.session_state.pdf_page = int(page_header) if page_header.isdigit() else 1
-        else:
-            st.error(f"Failed to load PDF: {response.status_code}")
-    except Exception as e:
-        st.error(f"Failed to connect to PDF server: {str(e)}")
+Context:
+{context}
 
+User Query: {q}
+
+Answer:"""
+        
+        model = genai.GenerativeModel('gemini-1.5-pro')
+        gen_response = model.generate_content(prompt)
+        
+        st.session_state.answer = gen_response.text
+        st.session_state.sources = retrieved_docs
+        
+        # 4. Auto-highlight first document
+        if retrieved_docs:
+            first_src = retrieved_docs[0]
+            first_source = first_src['metadata'].get('source')
+            first_content = first_src['content']
+            if first_source:
+                st.session_state.selected_pdf = first_source
+                load_highlighted_pdf(first_source, first_content)
+                
+    except Exception as e:
+        st.session_state.answer = f"Search failed: {str(e)}"
 
 def display_pdf():
     """Displays the currently loaded PDF bytes in an iframe."""
@@ -147,7 +237,6 @@ with col1:
                 doc_name = src['metadata'].get('source', 'Unknown Document')
                 content_text = src['content']
                 
-                # Clean up the document name for display
                 display_name = doc_name.replace(".pdf", "").replace("_", " ")
                 if len(display_name) > 40:
                     display_name = display_name[:40] + "..."

@@ -1,2 +1,5 @@
 streamlit
 requests
+supabase
+google-generativeai
+PyMuPDF
