@@ -46,6 +46,16 @@ st.markdown(
 )
 
 # Load secrets directly in Streamlit
+import os
+try:
+    from dotenv import load_dotenv
+    # Try to load backend/.env if it exists for local testing
+    env_path = os.path.join(os.path.dirname(__file__), "..", "backend", ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+except ImportError:
+    pass
+
 try:
     SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
     SUPABASE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
