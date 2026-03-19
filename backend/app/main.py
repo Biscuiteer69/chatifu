@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, Request
 import os
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import google.generativeai as genai
+import tempfile
+import fitz
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
@@ -12,6 +14,10 @@ app = FastAPI(title="IFU Search API")
 class SearchRequest(BaseModel):
     query: str
     limit: int = 5
+
+class HighlightRequest(BaseModel):
+    filename: str
+    text_to_highlight: str
 
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -82,3 +88,46 @@ Answer:"""
         answer = f"Could not generate synthesis. Raw context retrieved.\n\nError: {str(e)}"
 
     return {"answer": answer, "results": retrieved_docs}
+
+@app.post("/highlight_pdf")
+async def get_highlighted_pdf(request: HighlightRequest):
+    data_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'ifus')
+    # fallback to just 'data' if 'data/ifus' doesn't exist
+    if not os.path.exists(data_dir):
+        data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+        
+    pdf_path = os.path.join(data_dir, request.filename)
+    
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail=f"PDF {request.filename} not found.")
+
+    doc = fitz.open(pdf_path)
+    
+    # We take the first 40 characters as a search term to find the right page/block
+    # Because full chunks might have paragraph breaks that mess up exact string matching
+    search_term = request.text_to_highlight[:40].replace('\n', ' ').strip()
+    
+    found_page = None
+
+    if search_term:
+        for page in doc:
+            text_instances = page.search_for(search_term)
+            if text_instances:
+                found_page = page.number # PyMuPDF pages are 0-indexed
+                for inst in text_instances:
+                    # Draw a yellow highlight
+                    highlight = page.add_highlight_annot(inst)
+                    highlight.set_colors(stroke=(1, 1, 0)) # Yellow
+                    highlight.update()
+                break # Only highlight the first occurrence to avoid overwhelming the doc
+
+    # Save to temp bytes
+    pdf_bytes = doc.write()
+    doc.close()
+    
+    headers = {"Content-Disposition": f"inline; filename={request.filename}"}
+    if found_page is not None:
+        # We pass the found page back in a custom header so the frontend can scroll to it
+        headers["X-Found-Page"] = str(found_page + 1)
+        
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
