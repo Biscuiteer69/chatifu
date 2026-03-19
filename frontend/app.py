@@ -6,148 +6,42 @@ import os
 st.set_page_config(page_title="ChatIFU", page_icon="🩺", layout="wide", initial_sidebar_state="collapsed")
 
 # Custom CSS for a beautiful, simple, OpenEvidence-like UI
-st.markdown("""
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+st.markdown(
+    """
     <style>
-    /* Global Font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
         background-color: #FFFFFF;
         color: #111827;
     }
-    
-    /* Hide the top padding in Streamlit */
     .block-container { 
         padding-top: 2rem !important; 
         padding-bottom: 0rem !important; 
         max-width: 1400px;
     }
-    
-    /* Logo / Title */
-    .logo-container {
-        display: flex;
-        align-items: center;
-        margin-bottom: 2rem;
-    }
-    .logo-icon {
-        font-size: 28px;
-        margin-right: 12px;
-    }
-    .logo-text {
-        font-size: 28px;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        color: #111827;
-    }
-    
-    /* Clean Search Bar */
+    .logo-container { display: flex; align-items: center; margin-bottom: 2rem; }
+    .logo-icon { font-size: 28px; margin-right: 12px; }
+    .logo-text { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; color: #111827; }
     .stTextInput>div>div>input {
-        border-radius: 12px !important;
-        padding: 16px 20px !important;
-        font-size: 16px !important;
-        border: 1px solid #E5E7EB !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
-        transition: all 0.2s ease;
+        border-radius: 12px !important; padding: 16px 20px !important;
+        font-size: 16px !important; border: 1px solid #E5E7EB !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
         background-color: #F9FAFB !important;
     }
-    .stTextInput>div>div>input:focus {
-        border-color: #3B82F6 !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
-        background-color: #FFFFFF !important;
-    }
-    
-    /* Answer Box */
-    .answer-box {
-        background-color: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        padding: 24px;
-        border-radius: 12px;
-        font-size: 16px;
-        line-height: 1.6;
-        color: #374151;
-        margin-top: 24px;
-        margin-bottom: 24px;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-    }
-    .answer-box p {
-        margin-bottom: 0;
-    }
-    
-    /* Typography */
-    h3 {
-        font-size: 18px !important;
-        font-weight: 600 !important;
-        color: #111827 !important;
-        margin-bottom: 12px !important;
-    }
-    
-    /* Source Citations */
-    .streamlit-expanderHeader {
-        font-size: 14px !important;
-        font-weight: 500 !important;
-        color: #4B5563 !important;
-        border-radius: 8px !important;
-        background-color: #F9FAFB !important;
-    }
-    .source-box {
-        font-size: 14px;
-        line-height: 1.5;
-        color: #6B7280;
-        padding: 16px;
-        border-radius: 8px;
-        background-color: #F3F4F6;
-        margin-bottom: 12px;
-    }
-    
-    /* Buttons */
-    .stButton>button {
-        border-radius: 8px !important;
-        border: 1px solid #E5E7EB !important;
-        background-color: #FFFFFF !important;
-        color: #374151 !important;
-        font-weight: 500 !important;
-        padding: 4px 12px !important;
-        transition: all 0.2s ease;
-    }
-    .stButton>button:hover {
-        background-color: #F3F4F6 !important;
-        border-color: #D1D5DB !important;
-        color: #111827 !important;
-    }
-    
-    /* Right Column Empty State */
-    .empty-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        min-height: 600px;
-        background-color: #F9FAFB;
-        border-radius: 12px;
-        border: 1px dashed #D1D5DB;
-        color: #9CA3AF;
-        text-align: center;
-        padding: 40px;
-    }
-    .empty-state svg {
-        margin-bottom: 16px;
-        width: 48px;
-        height: 48px;
-        opacity: 0.5;
-    }
-    
-    /* PDF Viewer Container */
-    .pdf-viewer-header {
-        font-size: 14px;
-        font-weight: 500;
-        color: #4B5563;
-        margin-bottom: 12px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid #E5E7EB;
-    }
+    .stTextInput>div>div>input:focus { border-color: #3B82F6 !important; background-color: #FFFFFF !important; }
+    .answer-box { background-color: #FFFFFF; border: 1px solid #E5E7EB; padding: 24px; border-radius: 12px; font-size: 16px; color: #374151; margin: 24px 0; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1); }
+    h3 { font-size: 18px !important; font-weight: 600 !important; color: #111827 !important; margin-bottom: 12px !important; }
+    .streamlit-expanderHeader { font-size: 14px !important; font-weight: 500 !important; color: #4B5563 !important; border-radius: 8px !important; background-color: #F9FAFB !important; }
+    .source-box { font-size: 14px; color: #6B7280; padding: 16px; border-radius: 8px; background-color: #F3F4F6; margin-bottom: 12px; }
+    .stButton>button { border-radius: 8px !important; border: 1px solid #E5E7EB !important; background-color: #FFFFFF !important; color: #374151 !important; font-weight: 500 !important; padding: 4px 12px !important; }
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 600px; background-color: #F9FAFB; border-radius: 12px; border: 1px dashed #D1D5DB; color: #9CA3AF; text-align: center; padding: 40px; }
+    .pdf-viewer-header { font-size: 14px; font-weight: 500; color: #4B5563; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #E5E7EB; }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 API_URL = "http://localhost:8000/search"
 HIGHLIGHT_API_URL = "http://localhost:8000/highlight_pdf"
