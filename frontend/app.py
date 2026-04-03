@@ -94,43 +94,42 @@ if "pdf_page" not in st.session_state:
     st.session_state.pdf_page = 1
 
 def highlight_pdf(filename: str, text_to_highlight: str):
-    """Local Highlight Engine - replaces the backend call"""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    """Download from Supabase, highlight, and return bytes"""
+    import tempfile
     
-    # Try multiple possible locations
-    possible_paths = [
-        os.path.join(base_dir, "data", "ifus", filename),
-        os.path.join(base_dir, "..", "backend", "data", filename),
-        os.path.join(base_dir, "..", "backend", "data", "ifus", filename)
-    ]
-    
-    pdf_path = None
-    for p in possible_paths:
-        if os.path.exists(p):
-            pdf_path = p
-            break
-            
-    if not pdf_path:
-        raise Exception(f"PDF {filename} not found on server. Tried: {possible_paths}")
+    # 1. Download PDF from Supabase Storage
+    try:
+        pdf_bytes = supabase.storage.from_("pdfs").download(filename)
+    except Exception as e:
+        raise Exception(f"Failed to download {filename} from Supabase: {str(e)}")
+        
+    # 2. Write to a temporary file for PyMuPDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
 
-    doc = fitz.open(pdf_path)
-    search_term = text_to_highlight[:40].replace('\n', ' ').strip()
+    # 3. Open with fitz and highlight
+    doc = fitz.open(tmp_path)
+    search_term = text_to_highlight[:40].replace('
+', ' ').strip()
     found_page = None
 
     if search_term:
         for page in doc:
             text_instances = page.search_for(search_term)
             if text_instances:
-                found_page = page.number # PyMuPDF pages are 0-indexed
+                found_page = page.number
                 for inst in text_instances:
                     highlight = page.add_highlight_annot(inst)
                     highlight.set_colors(stroke=(1, 1, 0)) # Yellow
                     highlight.update()
                 break
 
-    pdf_bytes = doc.write()
+    out_bytes = doc.write()
     doc.close()
-    return pdf_bytes, (found_page + 1) if found_page is not None else 1
+    os.remove(tmp_path)
+    
+    return out_bytes, (found_page + 1) if found_page is not None else 1
 
 def load_highlighted_pdf(filename: str, text_to_highlight: str):
     """Highlight and store the PDF bytes directly."""
