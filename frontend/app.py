@@ -231,8 +231,7 @@ with col1:
 
     st.markdown(f"""
         <div class="logo-container">
-            <img class="logo-icon" src="data:image/jpeg;base64,{logo_base64}" style="width: 48px; height: 48px; border-radius: 8px; margin-right: 12px; object-fit: contain;">
-            <span class="logo-text">ChatIFU</span>
+            <img class="logo-icon" src="data:image/jpeg;base64,{logo_base64}" style="width: 240px; height: auto; border-radius: 8px; object-fit: contain; margin-bottom: 10px;">
         </div>
     """, unsafe_allow_html=True)
 
