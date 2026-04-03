@@ -225,9 +225,13 @@ def display_pdf():
 col1, col2 = st.columns([1, 1.2], gap="large")
 
 with col1:
-    st.markdown("""
+    logo_path = os.path.join(os.path.dirname(__file__), 'logo.jpg')
+    with open(logo_path, 'rb') as f:
+        logo_base64 = base64.b64encode(f.read()).decode()
+
+    st.markdown(f"""
         <div class="logo-container">
-            <span class="logo-icon">🩺</span>
+            <img class="logo-icon" src="data:image/jpeg;base64,{logo_base64}" style="width: 48px; height: 48px; border-radius: 8px; margin-right: 12px; object-fit: contain;">
             <span class="logo-text">ChatIFU</span>
         </div>
     """, unsafe_allow_html=True)
