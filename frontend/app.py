@@ -110,8 +110,7 @@ def highlight_pdf(filename: str, text_to_highlight: str):
 
     # 3. Open with fitz and highlight
     doc = fitz.open(tmp_path)
-    search_term = text_to_highlight[:40].replace('
-', ' ').strip()
+    search_term = text_to_highlight[:40].replace('\n', ' ').strip()
     found_page = None
 
     if search_term:
