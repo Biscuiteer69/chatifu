@@ -1,0 +1,724 @@
+"""
+Real-time IFU fetch → parse → keyword search.
+Public IFU PDFs may be cached by URL when a document cache is supplied.
+"""
+from __future__ import annotations
+
+import html as _html
+import io
+import json
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from http.cookiejar import CookieJar
+from pathlib import Path
+from typing import Callable
+
+import pypdf
+
+from ifu_cache import IFUDocumentCache
+
+
+BASE_URL = "https://www.e-ifu.com"
+TIMEOUT = 20
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ChatIFU/1.0",
+    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+}
+
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "dare", "ought",
+    "what", "which", "who", "whom", "where", "when", "why", "how",
+    "this", "that", "these", "those", "it", "its", "i", "me", "my",
+    "you", "your", "he", "him", "his", "she", "her", "we", "our", "they",
+    "in", "on", "at", "to", "for", "of", "with", "by", "from", "up",
+    "about", "into", "and", "but", "or", "not", "no", "so", "if", "as",
+    "get", "give", "tell", "show", "explain", "describe", "please", "list",
+})
+
+# FIX 1: Common English function/structure words for language detection.
+# Multilingual IFUs mix languages per section; pages below 20% density are skipped.
+_ENGLISH_WORDS = frozenset({
+    "a", "an", "the", "this", "that", "these", "those",
+    "at", "in", "on", "to", "of", "for", "with", "by", "from", "into", "up", "about",
+    "and", "or", "but", "if", "as", "than",
+    "is", "are", "be", "been", "was", "were", "have", "has", "had",
+    "do", "does", "did", "will", "would", "can", "could", "should", "may", "must",
+    "not", "use", "keep", "include",
+    "it", "its", "they", "their", "all", "each", "any", "no",
+    "only", "also", "such", "more", "when", "where", "which",
+})
+
+# FIX 2: Sentence boundary splitting — split after [.!?] + whitespace before uppercase.
+_SENTENCE_END = re.compile(r'[.!?]\s+(?=[A-Z•])')
+_MIN_SENTENCES = 2
+_MAX_SENTENCES = 5
+
+# FIX 5: Page limits to cap parse time on large PDFs.
+_WARNING_TERMS = frozenset({
+    "warning", "warnings", "caution", "cautions",
+    "contraindication", "contraindications", "danger", "hazard",
+    "precaution", "precautions", "adverse", "risk",
+})
+_PAGE_LIMIT = 150
+_APPENDIX_PAGES = 30
+
+ParsedPage = str | tuple[int, str]
+
+
+@dataclass
+class AnswerHit:
+    page: int
+    snippet: str
+    section: str | None = None
+
+
+@dataclass
+class AnswerResult:
+    hits: list[AnswerHit]
+    source_url: str
+    document_title: str | None
+    timing_ms: dict[str, float]
+    pdf_url: str | None = None
+    document_url: str | None = None
+    manufacturer_url: str | None = None
+    iframe_url: str | None = None
+    open_full_ifu_url: str | None = None
+    page_count: int = 0
+    error: str | None = None
+
+
+class IFUAnswerer:
+    """
+    Session-cached real-time IFU fetch → parse → keyword search → discard.
+    Thread-safe. PDF bytes are never written to disk.
+    """
+
+    def __init__(
+        self,
+        pdf_parser: Callable[[bytes], list[ParsedPage]] | None = None,
+        document_cache: IFUDocumentCache | None = None,
+    ) -> None:
+        self._lock = threading.Lock()
+        self._opener: urllib.request.OpenerDirector = _build_opener()
+        self._session_ready = False
+        # None → use built-in _parse_pdf_limited (respects page cap).
+        # Tests inject a callable to skip real PDF parsing.
+        self._pdf_parser = pdf_parser
+        self._document_cache = document_cache
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def answer(
+        self,
+        document_url: str,
+        question: str,
+        max_hits: int = 5,
+    ) -> AnswerResult:
+        """Fetch, parse, search, discard. Thread-safe; no disk writes."""
+        with self._lock:
+            return self._answer_locked(document_url, question, max_hits)
+
+    def fetch_pdf_bytes(self, document_url: str) -> tuple[bytes, str | None, str | None]:
+        """Fetch the actual resolved IFU PDF bytes without writing them to disk."""
+        with self._lock:
+            return self._fetch_pdf_bytes_locked(document_url)
+
+    # ------------------------------------------------------------------
+    # Session management (called with lock held)
+    # ------------------------------------------------------------------
+
+    def _reset_session(self) -> None:
+        self._opener = _build_opener()
+        self._session_ready = False
+
+    def _ensure_session(self) -> None:
+        if self._session_ready:
+            return
+        welcome = self._http_get(f"{BASE_URL}/welcome")
+        fb = _form_field(welcome, "form_build_id")
+        if not fb:
+            raise RuntimeError("form_build_id missing on welcome page")
+        self._http_post(f"{BASE_URL}/welcome", {
+            "site_user": "hcp",
+            "eifu_splash_welcome_language": "en",
+            "op": "Continue",
+            "form_build_id": fb,
+            "form_id": "eifu_splash_site_selection_form",
+            "url": "",
+        })
+        terms = self._http_get(f"{BASE_URL}/accept-terms-conditions")
+        fb = _form_field(terms, "form_build_id")
+        if not fb:
+            raise RuntimeError("form_build_id missing on terms page")
+        post_resp = self._http_post(f"{BASE_URL}/accept-terms-conditions", {
+            "acknowledge": "1",
+            "eifu_splash_welcome_language": "en",
+            "op": "Continue",
+            "form_build_id": fb,
+            "form_id": "eifu_splash_site_welcome_form",
+            "url": "",
+        })
+        if _is_gate_page(post_resp):
+            raise RuntimeError("Terms POST did not clear the session gate")
+        self._session_ready = True
+
+    # ------------------------------------------------------------------
+    # HTTP helpers (called with lock held; no lock re-acquisition)
+    # ------------------------------------------------------------------
+
+    def _http_get(self, url: str) -> str:
+        req = urllib.request.Request(url, headers=HEADERS)
+        with self._opener.open(req, timeout=TIMEOUT) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+
+    def _http_post(self, url: str, fields: dict[str, str]) -> str:
+        data = urllib.parse.urlencode(fields).encode()
+        req = urllib.request.Request(
+            url, data=data,
+            headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with self._opener.open(req, timeout=TIMEOUT) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+
+    def _http_bytes(self, url: str) -> bytes:
+        body, _final_url = self._http_bytes_with_url(url)
+        return body
+
+    def _http_bytes_with_url(self, url: str) -> tuple[bytes, str]:
+        parsed = urllib.parse.urlparse(url)
+        safe = urllib.parse.urlunparse(
+            parsed._replace(path=urllib.parse.quote(parsed.path, safe="/"))
+        )
+        req = urllib.request.Request(safe, headers={**HEADERS, "Accept": "application/pdf,*/*"})
+        with self._opener.open(req, timeout=TIMEOUT) as resp:
+            final_url = resp.geturl() if hasattr(resp, "geturl") else safe
+            return resp.read(), final_url
+
+    def _fetch_pdf_bytes_locked(self, document_url: str) -> tuple[bytes, str | None, str | None]:
+        if _is_direct_pdf_url(document_url):
+            pdf_bytes, final_pdf_url = self._http_bytes_with_url(document_url)
+            return pdf_bytes, final_pdf_url or document_url, _title_from_url(final_pdf_url or document_url)
+
+        self._ensure_session()
+        viewer_raw = self._http_get(document_url)
+        inner = decode_viewer(viewer_raw)
+        if _is_gate_page(inner) or _is_gate_page(viewer_raw):
+            self._reset_session()
+            self._ensure_session()
+            viewer_raw = self._http_get(document_url)
+            inner = decode_viewer(viewer_raw)
+
+        doc_title = extract_doc_title(inner)
+        pdf_url = extract_pdf_url(inner)
+        if not pdf_url:
+            raise RuntimeError("Could not extract PDF URL from viewer page")
+        if self._document_cache is not None:
+            pdf_bytes, _doc, _cache_hit = self._document_cache.get_or_fetch(
+                pdf_url,
+                lambda: self._http_bytes_with_url(pdf_url),
+            )
+            final_pdf_url = pdf_url
+        else:
+            pdf_bytes, final_pdf_url = self._http_bytes_with_url(pdf_url)
+        return pdf_bytes, final_pdf_url or pdf_url, doc_title
+
+    # ------------------------------------------------------------------
+    # Answer pipeline (called with lock held)
+    # ------------------------------------------------------------------
+
+    def _answer_locked(
+        self,
+        document_url: str,
+        question: str,
+        max_hits: int,
+    ) -> AnswerResult:
+        timing: dict[str, float] = {}
+        t_total = time.perf_counter()
+        direct_pdf = _is_direct_pdf_url(document_url)
+
+        # Step 1 — session
+        t0 = time.perf_counter()
+        if direct_pdf:
+            timing["session_ms"] = 0.0
+        else:
+            try:
+                self._ensure_session()
+            except Exception as exc:
+                self._reset_session()
+                return AnswerResult(
+                    hits=[], source_url=document_url, document_title=None,
+                    timing_ms={"session_ms": _ms(t0), "total_ms": _ms(t_total)},
+                    error=f"Session error: {exc}",
+                )
+            timing["session_ms"] = _ms(t0)
+
+        # Step 2 — viewer page → inner HTML → PDF URL
+        t1 = time.perf_counter()
+        if direct_pdf:
+            doc_title = _title_from_url(document_url)
+            pdf_url = document_url
+            timing["viewer_ms"] = 0.0
+        else:
+            try:
+                viewer_raw = self._http_get(document_url)
+            except Exception as exc:
+                if _is_auth_exc(exc):
+                    self._reset_session()
+                timing["viewer_ms"] = _ms(t1)
+                return AnswerResult(
+                    hits=[], source_url=document_url, document_title=None,
+                    timing_ms={**timing, "total_ms": _ms(t_total)},
+                    error=f"Viewer page fetch failed: {exc}",
+                )
+
+            inner = decode_viewer(viewer_raw)
+
+            # Reset and retry once if the viewer returned a gate page
+            if _is_gate_page(inner) or _is_gate_page(viewer_raw):
+                self._reset_session()
+                try:
+                    self._ensure_session()
+                    viewer_raw = self._http_get(document_url)
+                    inner = decode_viewer(viewer_raw)
+                except Exception as exc:
+                    timing["viewer_ms"] = _ms(t1)
+                    return AnswerResult(
+                        hits=[], source_url=document_url, document_title=None,
+                        timing_ms={**timing, "total_ms": _ms(t_total)},
+                        error=f"Session retry failed: {exc}",
+                    )
+
+            timing["viewer_ms"] = _ms(t1)
+            doc_title = extract_doc_title(inner)
+            pdf_url = extract_pdf_url(inner)
+            if not pdf_url:
+                return AnswerResult(
+                    hits=[], source_url=document_url, document_title=doc_title,
+                    timing_ms={**timing, "total_ms": _ms(t_total)},
+                    error="Could not extract PDF URL from viewer page",
+                )
+
+        # Step 3 — fetch PDF bytes into memory only
+        t2 = time.perf_counter()
+        try:
+            cache_hit = False
+            if self._document_cache is not None and not direct_pdf:
+                pdf_bytes, _doc, cache_hit = self._document_cache.get_or_fetch(
+                    pdf_url,
+                    lambda: self._http_bytes_with_url(pdf_url),
+                )
+                final_pdf_url = pdf_url
+            else:
+                pdf_bytes, final_pdf_url = self._http_bytes_with_url(pdf_url)
+        except Exception as exc:
+            if _is_auth_exc(exc):
+                self._reset_session()
+            timing["fetch_ms"] = _ms(t2)
+            return AnswerResult(
+                hits=[], source_url=document_url, document_title=doc_title,
+                timing_ms={**timing, "total_ms": _ms(t_total)},
+                error=f"PDF fetch failed: {exc}",
+                pdf_url=pdf_url,
+                document_url=pdf_url,
+                manufacturer_url=document_url,
+                open_full_ifu_url=pdf_url,
+            )
+        timing["fetch_ms"] = _ms(t2)
+        timing["cache_hit"] = 1.0 if cache_hit else 0.0
+        pdf_url = final_pdf_url or pdf_url
+
+        # Step 4 — parse (pdf_bytes never leaves memory; deleted after parse)
+        t3 = time.perf_counter()
+        try:
+            if self._pdf_parser is not None:
+                pages = self._pdf_parser(pdf_bytes)
+            else:
+                pages = _parse_pdf_limited(pdf_bytes, question)
+        except Exception as exc:
+            timing["parse_ms"] = _ms(t3)
+            return AnswerResult(
+                hits=[], source_url=document_url, document_title=doc_title,
+                timing_ms={**timing, "total_ms": _ms(t_total)},
+                error=f"PDF parse failed: {exc}",
+                pdf_url=pdf_url,
+                document_url=pdf_url,
+                manufacturer_url=document_url,
+                open_full_ifu_url=pdf_url,
+            )
+        finally:
+            del pdf_bytes
+        timing["parse_ms"] = _ms(t3)
+        page_count = len(pages)
+
+        # Step 5 — keyword search; text discarded immediately after
+        t4 = time.perf_counter()
+        hits = search_pages(pages, question, max_hits)
+        del pages
+        timing["search_ms"] = round(_ms(t4), 2)
+        timing["total_ms"] = _ms(t_total)
+
+        return AnswerResult(
+            hits=hits,
+            source_url=document_url,
+            document_title=doc_title,
+            timing_ms=timing,
+            pdf_url=pdf_url,
+            document_url=pdf_url,
+            manufacturer_url=document_url,
+            open_full_ifu_url=pdf_url,
+            page_count=page_count,
+        )
+
+
+# ------------------------------------------------------------------
+# Module-level helpers (also used by tests)
+# ------------------------------------------------------------------
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    jar = CookieJar()
+    return urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(jar),
+        urllib.request.HTTPRedirectHandler(),
+    )
+
+
+def _ms(t0: float) -> float:
+    return round((time.perf_counter() - t0) * 1000, 1)
+
+
+def _form_field(html_str: str, name: str) -> str | None:
+    for pattern in (
+        rf'name="{re.escape(name)}"\s+value="([^"]*)"',
+        rf'value="([^"]*)"\s+name="{re.escape(name)}"',
+    ):
+        m = re.search(pattern, html_str)
+        if m:
+            return _html.unescape(m.group(1))
+    return None
+
+
+def _is_gate_page(content: str) -> bool:
+    low = content.lower()
+    if "doc-info-row" in low or "/viewpdf-iframe/" in low or "/fetchpdf/" in low:
+        return False
+    if (
+        "eifu_splash_site_selection_form" in low
+        or 'name="site_user"' in low
+        or "edit-site-user-hcp" in low
+        or "accept-terms-conditions" in low
+    ):
+        return True
+    if "access denied" in low or "forbidden" in low:
+        return True
+    return False
+
+
+def _is_auth_exc(exc: BaseException) -> bool:
+    return isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403)
+
+
+def _is_direct_pdf_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    path = parsed.path.lower()
+    return path.endswith(".pdf") or "/fetchpdf/" in path
+
+
+def _title_from_url(url: str) -> str | None:
+    name = urllib.parse.unquote(Path(urllib.parse.urlparse(url).path).name)
+    return name or None
+
+
+def decode_viewer(raw: str) -> str:
+    """
+    The viewpdf-iframe endpoint returns <textarea>[Drupal AJAX JSON]</textarea>.
+    The openDialog command's 'data' field holds the inner HTML with the PDF iframe.
+    Exported so tests can call it directly.
+    """
+    m = re.search(r"<textarea[^>]*>(.*?)</textarea>", raw, re.DOTALL | re.IGNORECASE)
+    if m:
+        try:
+            commands = json.loads(_html.unescape(m.group(1)))
+            for cmd in commands:
+                if cmd.get("command") == "openDialog":
+                    return cmd.get("data") or ""
+        except (ValueError, KeyError, TypeError):
+            pass
+    return raw
+
+
+def extract_doc_title(inner_html: str) -> str | None:
+    m = re.search(r'class="pdf-name"[^>]*>(.*?)</span>', inner_html, re.DOTALL)
+    if m:
+        title = re.sub(r"\s+", " ", _html.unescape(m.group(1))).strip()
+        return title or None
+    return None
+
+
+def extract_pdf_url(inner_html: str, base_url: str = BASE_URL) -> str | None:
+    """
+    Locate the fetchPdf URL from the viewer's iframe src.
+    The pattern: <iframe src="/viewpdf?file=%2FfetchPdf%2F...pdf">
+    """
+    m = re.search(
+        r'<iframe[^>]+src=["\']([^"\']*(?:viewpdf|fetchPdf)[^"\']*)["\']',
+        inner_html, re.IGNORECASE,
+    )
+    if m:
+        src = m.group(1)
+        if "file=" in src:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(src).query)
+            paths = qs.get("file") or qs.get("File")
+            if paths:
+                path = paths[0]
+                return path if path.startswith("http") else base_url + path
+        return src if src.startswith("http") else base_url + src
+
+    for pattern in (
+        r'<embed[^>]+src=["\']([^"\']+\.pdf[^"\']*)["\']',
+        r'<object[^>]+data=["\']([^"\']+\.pdf[^"\']*)["\']',
+        r'<a[^>]+href=["\']([^"\']+\.pdf[^"\']*)["\']',
+        r'"(?:uri|url|src)"\s*:\s*"([^"]+\.pdf[^"]*)"',
+        r'["\'](/(?:sites|files|media)[^"\']+\.pdf[^"\']*)["\']',
+    ):
+        m = re.search(pattern, inner_html, re.IGNORECASE)
+        if m:
+            url = m.group(1)
+            if url.startswith("//"):
+                return "https:" + url
+            if url.startswith("/"):
+                return base_url + url
+            return url
+    return None
+
+
+def _parse_pdf(pdf_bytes: bytes) -> list[str]:
+    """Parse all pages — kept for backward compatibility; production uses _parse_pdf_limited."""
+    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    pages: list[str] = []
+    for page in reader.pages:
+        try:
+            pages.append(page.extract_text() or "")
+        except Exception:
+            pages.append("")
+    return pages
+
+
+def _is_warning_question(question: str) -> bool:
+    words = set(re.split(r"\W+", question.lower()))
+    return bool(words & _WARNING_TERMS)
+
+
+def _parse_pdf_limited(pdf_bytes: bytes, question: str) -> list[tuple[int, str]]:
+    """Parse at most _PAGE_LIMIT pages; for warning questions also parse the last _APPENDIX_PAGES."""
+    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    total = len(reader.pages)
+    if total <= _PAGE_LIMIT:
+        indices: list[int] = list(range(total))
+    elif _is_warning_question(question):
+        front = list(range(_PAGE_LIMIT))
+        back_start = max(_PAGE_LIMIT, total - _APPENDIX_PAGES)
+        indices = front + list(range(back_start, total))
+    else:
+        indices = list(range(_PAGE_LIMIT))
+    pages: list[tuple[int, str]] = []
+    for i in indices:
+        try:
+            text = reader.pages[i].extract_text() or ""
+        except Exception:
+            text = ""
+        pages.append((i + 1, text))
+    return pages
+
+
+def _is_english_page(text: str) -> bool:
+    """Return True if >= 20% of words are common English function words."""
+    words = [w for w in re.split(r"\W+", text.lower()) if w]
+    if not words:
+        return False
+    if len(words) < 6:
+        return True
+    english_count = sum(1 for w in words if w in _ENGLISH_WORDS)
+    return (english_count / len(words)) >= 0.20
+
+
+def _split_sentences(text: str) -> list[tuple[int, int]]:
+    """Return (start, end) character spans of sentences in text."""
+    starts = [0]
+    for m in _SENTENCE_END.finditer(text):
+        starts.append(m.end())
+    return [
+        (starts[i], starts[i + 1] if i + 1 < len(starts) else len(text))
+        for i in range(len(starts))
+    ]
+
+
+def search_pages(
+    pages: list[ParsedPage],
+    question: str,
+    max_hits: int = 5,
+) -> list[AnswerHit]:
+    """
+    Extract significant terms from the question (skip stop words),
+    skip non-English pages, score remaining pages by term coverage,
+    return top hits with sentence-boundary-aligned snippets.
+    """
+    raw_terms = [t.lower() for t in re.split(r"\W+", question) if t and len(t) >= 2]
+    terms = [t for t in raw_terms if t not in _STOP_WORDS]
+    if not terms:
+        terms = raw_terms
+
+    scored_hits: list[tuple[int, int, int, AnswerHit]] = []
+    unique_terms = list(dict.fromkeys(terms))
+    for i, page in enumerate(pages):
+        page_num, text = _page_number_and_text(i, page)
+        if not _is_english_page(text):
+            continue
+        low = text.lower()
+        if not any(t in low for t in terms):
+            continue
+        coverage = sum(1 for t in unique_terms if t in low)
+        occurrences = sum(low.count(t) for t in unique_terms)
+        snippet, anchor = _best_snippet_and_anchor(text, low, terms)
+        section = _extract_section(text, anchor) or "Relevant IFU passage"
+        scored_hits.append((
+            coverage,
+            occurrences,
+            page_num,
+            AnswerHit(page=page_num, snippet=snippet, section=section),
+        ))
+
+    scored_hits.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    return [hit for _coverage, _occurrences, _page_num, hit in scored_hits[:max_hits]]
+
+
+def _page_number_and_text(i: int, page: ParsedPage) -> tuple[int, str]:
+    if isinstance(page, tuple):
+        return page
+    return i + 1, page
+
+
+def _best_snippet(text: str, low: str, terms: list[str]) -> str:
+    snippet, _ = _best_snippet_and_anchor(text, low, terms)
+    return snippet
+
+
+def _best_snippet_and_anchor(text: str, low: str, terms: list[str]) -> tuple[str, int]:
+    """Return 2–5 complete sentences centered on the densest term cluster."""
+    positions: list[int] = []
+    for t in terms:
+        idx = 0
+        while True:
+            pos = low.find(t, idx)
+            if pos == -1:
+                break
+            positions.append(pos)
+            idx = pos + 1
+
+    anchor = positions[0] if positions else 0
+    if len(positions) > 1:
+        positions.sort()
+        best_count = 0
+        for pos in positions:
+            start = max(0, pos - 80)
+            end = start + 300
+            count = sum(1 for p in positions if start <= p < end)
+            if count > best_count:
+                best_count = count
+                anchor = pos
+
+    spans = _split_sentences(text)
+    if not spans:
+        return _clean_snippet(text[:400]), anchor
+
+    # Locate the sentence containing the anchor character
+    anchor_idx = len(spans) - 1
+    for i, (s, e) in enumerate(spans):
+        if s <= anchor < e:
+            anchor_idx = i
+            break
+
+    # Build a 2–5 sentence window centered on the anchor sentence
+    start_idx = max(0, anchor_idx - 1)
+    end_idx = min(len(spans), start_idx + _MAX_SENTENCES)
+    if end_idx - start_idx < _MIN_SENTENCES:
+        end_idx = min(len(spans), start_idx + _MIN_SENTENCES)
+
+    raw = text[spans[start_idx][0]:spans[end_idx - 1][1]]
+    return _clean_snippet(raw), anchor
+
+
+def _clean_snippet(raw: str) -> str:
+    snippet = re.sub(r"\s+", " ", raw).strip()
+    # PDF extraction often leaves a dangling list marker at the edge of a
+    # sentence window, for example "a." or "b.". Do not treat that as content.
+    snippet = re.sub(r"\s+(?:[a-z]|[ivx]+)\.$", "", snippet, flags=re.IGNORECASE).strip()
+    if snippet and not re.search(r"[.!?]$", snippet):
+        m = list(re.finditer(r"[.!?](?=\s|$)", snippet))
+        if m:
+            snippet = snippet[:m[-1].end()].strip()
+    return snippet
+
+
+_SECTION_KEYWORDS = frozenset({
+    "warning", "warnings", "caution", "cautions", "contraindication",
+    "contraindications", "indication", "indications", "instruction",
+    "instructions", "precaution", "precautions", "adverse", "storage",
+    "sterile", "reuse", "single use", "description", "implantation",
+})
+
+
+def _extract_section(text: str, anchor: int) -> str | None:
+    """Find a nearby heading-like line before the matched passage."""
+    lines: list[tuple[int, int, str]] = []
+    pos = 0
+    for raw in text.splitlines(True):
+        stripped = raw.strip()
+        start = pos + raw.find(stripped) if stripped else pos
+        end = pos + len(raw)
+        if stripped:
+            lines.append((start, end, stripped))
+        pos = end
+
+    if not lines:
+        return None
+
+    line_idx = 0
+    for idx, (_start, end, _line) in enumerate(lines):
+        if anchor < end:
+            line_idx = idx
+            break
+
+    for _start, _end, line in reversed(lines[max(0, line_idx - 12):line_idx + 1]):
+        section = _section_from_heading_line(line)
+        if section:
+            return section
+    return None
+
+
+def _section_from_heading_line(line: str) -> str | None:
+    clean = re.sub(r"\s+", " ", line).strip(" :-")
+    if len(clean) < 3 or len(clean) > 100:
+        return None
+
+    before_colon = clean.split(":", 1)[0].strip()
+    candidate = before_colon if len(before_colon) <= 60 else clean
+    lower = candidate.lower()
+    if any(keyword in lower for keyword in _SECTION_KEYWORDS):
+        return candidate[:80]
+
+    letters = [c for c in candidate if c.isalpha()]
+    if not letters:
+        return None
+    uppercase_ratio = sum(1 for c in letters if c.isupper()) / len(letters)
+    if uppercase_ratio >= 0.70 and not candidate.endswith("."):
+        return candidate[:80]
+    return None
