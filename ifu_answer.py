@@ -196,7 +196,7 @@ class IFUAnswerer:
     def _http_bytes_with_url(self, url: str) -> tuple[bytes, str]:
         parsed = urllib.parse.urlparse(url)
         safe = urllib.parse.urlunparse(
-            parsed._replace(path=urllib.parse.quote(parsed.path, safe="/"))
+            parsed._replace(path=urllib.parse.quote(parsed.path, safe="/%"))
         )
         req = urllib.request.Request(safe, headers={**HEADERS, "Accept": "application/pdf,*/*"})
         with self._opener.open(req, timeout=TIMEOUT) as resp:

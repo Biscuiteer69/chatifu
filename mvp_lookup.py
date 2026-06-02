@@ -181,6 +181,11 @@ def ensure_ifu_for_catalog(
     device = get_device(catalog_number, db_path=db_path)
     company = str((device or {}).get("company_name") or "").lower()
     model_number = (device or {}).get("model_number")
+    if "abbott" in company:
+        from resolvers.abbott_resolver import AbbottResolver
+
+        AbbottResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
+        return
     if "edwards lifesciences" in company:
         from resolvers.edwards_resolver import EdwardsResolver
 

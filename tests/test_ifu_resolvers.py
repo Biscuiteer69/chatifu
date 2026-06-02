@@ -88,6 +88,15 @@ class IFUResolverTests(unittest.TestCase):
         })
         self.assertEqual(attempts[0]["resolver"], "EdwardsEifuResolver")
 
+    def test_abbott_company_uses_abbott_resolver_before_generic(self) -> None:
+        registry = IFUResolverRegistry()
+        attempts = registry.resolver_attempts({
+            "company_name": "Abbott Vascular Inc.",
+            "brand_name": "MITRACLIP",
+            "catalog_number": "CDS0701-XTW",
+        })
+        self.assertEqual(attempts[0]["resolver"], "AbbottEifuResolver")
+
     def test_generic_pdf_direct_pdf_resolves(self) -> None:
         resolver = GenericPdfResolver()
         result = resolver.resolve({"document_url": "https://example.com/ifu.pdf"})

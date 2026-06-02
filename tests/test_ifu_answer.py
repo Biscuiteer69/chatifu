@@ -348,6 +348,20 @@ class IFUAnswererTests(unittest.TestCase):
         self.assertIn("DOC-0215896A_JO.pdf", result.document_title or "")
         self.assertEqual(result.hits[0].page, 1)
 
+    def test_direct_pdf_url_preserves_existing_percent_encoding(self) -> None:
+        opener = FakeOpener([b"%PDF-1.4 fake"])
+        answerer = IFUAnswerer(pdf_parser=_fake_pdf_parser(["Warnings: inspect the device before use."]))
+        answerer._opener = opener
+
+        result = answerer.answer(
+            "https://manuals.eifu.abbott/content/dam/av/EL2106481%2520Rev.%2520B.pdf",
+            "warnings",
+        )
+
+        self.assertIsNone(result.error)
+        self.assertIn("%2520Rev.%2520B.pdf", opener.calls[0])
+        self.assertNotIn("%252520Rev", opener.calls[0])
+
     def test_returns_empty_hits_when_no_match(self) -> None:
         pages = ["Storage: keep below 25°C. Sterile until package is opened."]
         answerer, _ = self._make_answerer(_viewer_response(), pages)

@@ -7,6 +7,7 @@ from medical_device_vocab import ParsedMedicalDeviceQuery
 from mvp_lookup import SQLITE_PATH
 
 from .base import ResolvedIFU
+from .abbott_eifu import AbbottEifuResolver
 from .company_configs import config_for_company_name
 from .edwards_eifu import EdwardsEifuResolver
 from .generic_company_pdf import GenericCompanyPdfResolver
@@ -69,6 +70,8 @@ class IFUResolverRegistry:
     def _resolvers(self, candidate: dict[str, Any]) -> list[Any]:
         company = f"{candidate.get('company_name') or ''} {candidate.get('brand_name') or ''}".lower()
         resolvers: list[Any] = []
+        if "abbott" in company:
+            resolvers.append(AbbottEifuResolver(db_path=self.db_path))
         if any(term in company for term in ("johnson", "ethicon", "depuy", "biosense", "abiomed")):
             resolvers.append(JnjEifuResolver(db_path=self.db_path))
         if "edwards lifesciences" in company:
