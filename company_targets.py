@@ -142,6 +142,30 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
     },
     {
         "rank": 17,
+        "key": "b_braun",
+        "name": "B. Braun",
+        "adapter": "planned",
+        "company_patterns": ["%b braun%", "%b. braun%", "%b.braun%"],
+        "revenue": "~$9B",
+    },
+    {
+        "rank": 18,
+        "key": "smith_nephew",
+        "name": "Smith+Nephew",
+        "adapter": "planned",
+        "company_patterns": ["%smith & nephew%", "%smith and nephew%", "%smith-nephew%", "%smith+nephew%"],
+        "revenue": "~$5-6B",
+    },
+    {
+        "rank": 19,
+        "key": "dexcom",
+        "name": "Dexcom",
+        "adapter": "planned",
+        "company_patterns": ["%dexcom%"],
+        "revenue": "~$4B",
+    },
+    {
+        "rank": 20,
         "key": "alcon",
         "name": "Alcon",
         "adapter": "planned",
@@ -149,7 +173,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "revenue": "~$9-10B",
     },
     {
-        "rank": 18,
+        "rank": 21,
         "key": "resmed",
         "name": "ResMed",
         "adapter": "planned",
@@ -157,7 +181,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "revenue": "~$4-5B",
     },
     {
-        "rank": 19,
+        "rank": 22,
         "key": "terumo",
         "name": "Terumo",
         "adapter": "planned",
@@ -165,7 +189,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "revenue": "~$6-7B",
     },
     {
-        "rank": 20,
+        "rank": 23,
         "key": "fresenius",
         "name": "Fresenius Medical Care",
         "adapter": "planned",
