@@ -22,6 +22,8 @@ from ifu_answer import (
     _section_name_matches,
     _extract_section_body,
     _section_aware_search,
+    _is_storage_question,
+    _find_storage_passage,
 )
 
 
@@ -537,7 +539,9 @@ class GatePageDetectionTests(unittest.TestCase):
 
 class InferTargetSectionsTests(unittest.TestCase):
     def test_contraindications_maps_correctly(self) -> None:
-        self.assertEqual(_infer_target_sections("what are the contraindications?"), ["CONTRAINDICATIONS"])
+        targets = _infer_target_sections("what are the contraindications?")
+        self.assertEqual(targets[0], "CONTRAINDICATIONS")
+        self.assertIn("CONTRAINDICATIONS", targets)
 
     def test_warnings_maps_correctly(self) -> None:
         targets = _infer_target_sections("list the warnings")
@@ -689,6 +693,91 @@ class SectionAwareSearchTests(unittest.TestCase):
         hits = search_pages(pages, "shelf life", max_hits=5)
         self.assertEqual(len(hits), 1)
         self.assertIn("shelf life", hits[0].snippet.lower())
+
+
+class IsBodyHeadingSynonymTests(unittest.TestCase):
+    def test_title_case_storage_is_heading(self) -> None:
+        is_h, name = _is_body_heading("Storage")
+        self.assertTrue(is_h)
+        self.assertEqual(name, "STORAGE")
+
+    def test_title_case_contraindications_is_heading(self) -> None:
+        is_h, name = _is_body_heading("Contraindications")
+        self.assertTrue(is_h)
+        self.assertEqual(name, "CONTRAINDICATIONS")
+
+    def test_storage_with_trailing_page_number_is_not_heading(self) -> None:
+        is_h, _ = _is_body_heading("Storage 14")
+        self.assertFalse(is_h)
+
+    def test_storage_and_handling_is_heading(self) -> None:
+        is_h, name = _is_body_heading("Storage and Handling")
+        self.assertTrue(is_h)
+        self.assertEqual(name, "STORAGE AND HANDLING")
+
+    def test_shelf_life_is_heading(self) -> None:
+        is_h, name = _is_body_heading("Shelf Life")
+        self.assertTrue(is_h)
+        self.assertEqual(name, "SHELF LIFE")
+
+
+class StoragePhraseScanTests(unittest.TestCase):
+    def test_is_storage_question_detects_storage_keyword(self) -> None:
+        self.assertTrue(_is_storage_question("what are the storage conditions and shelf life?"))
+
+    def test_is_storage_question_detects_shelf(self) -> None:
+        self.assertTrue(_is_storage_question("what is the shelf life?"))
+
+    def test_is_storage_question_false_for_unrelated(self) -> None:
+        self.assertFalse(_is_storage_question("is this device MRI safe?"))
+
+    def test_find_storage_passage_detects_temperature_phrase(self) -> None:
+        pages = [
+            "SGC0101 is supplied sterile and packaged in a sealed tray.",
+            "Store at or below 25°C. Avoid freezing. Shelf life: 3 years from manufacture.",
+        ]
+        hits = _find_storage_passage(pages)
+        self.assertEqual(len(hits), 1)
+        self.assertIn("25", hits[0].snippet)
+
+    def test_find_storage_passage_skips_toc_pages(self) -> None:
+        pages = [
+            "STORAGE ......... 9\nWARNINGS ......... 5\nCONTRAINDICATIONS ......... 4\n",
+            "Store at 2–25°C. Do not freeze. Shelf life is 2 years from date of manufacture.",
+        ]
+        hits = _find_storage_passage(pages)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0].page, 2)
+
+    def test_find_storage_passage_ignores_temperature_only_in_mri_section(self) -> None:
+        pages = [
+            # Only a bare temperature value — no dedicated storage indicator
+            "Non-clinical testing shows MitraClip is MR Conditional. "
+            "Temperature rise of less than 3°C after 15 minutes of continuous scanning.",
+        ]
+        hits = _find_storage_passage(pages)
+        self.assertEqual(hits, [])
+
+
+class MinCoverageGuardTests(unittest.TestCase):
+    def test_mri_query_returns_empty_when_no_mri_section(self) -> None:
+        pages = [
+            "This is the Acme IOL implant. It has a catalog number of IOL-001.",
+            "CONTRAINDICATIONS\nDo not use in patients with active infection.",
+            "STORAGE\nStore below 25°C. Shelf life 3 years.",
+        ]
+        hits = search_pages(pages, "is this device MRI safe?", max_hits=5)
+        self.assertEqual(hits, [])
+
+    def test_section_intent_query_filters_single_term_match(self) -> None:
+        # "is this device MRI safe?" → unique terms: ["device", "mri", "safe"]
+        # min_coverage = 2. A page with only "MRI" (coverage=1) should be excluded.
+        pages = [
+            "Acme catalog model MRI-001 is shipped sterile in a sealed package.",
+        ]
+        hits = search_pages(pages, "is this device MRI safe?", max_hits=5)
+        # "mri" matches, but "device" and "safe" do not → coverage=1 < min_coverage=2
+        self.assertEqual(hits, [])
 
 
 if __name__ == "__main__":

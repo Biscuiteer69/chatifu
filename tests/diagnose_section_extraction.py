@@ -42,21 +42,65 @@ _WRONG_INDICATORS = [
 ]
 
 
+_CONTRAINDICATION_CONTENT = [
+    "contraindic", "do not use", "not to be used", "should not be used",
+    "not recommended", "must not", "cannot be used",
+]
+_WARNING_CONTENT = [
+    "warn", "caution", "hazard", "risk", "adverse", "precaution",
+    "do not reuse", "single use", "patient injury", "serious",
+]
+_STORAGE_CONTENT = [
+    "store", "storage", "temperature", "°c", "°f", "humidity",
+    "shelf life", "freeze", "cool", "dry", "expir",
+]
+_MRI_CONTENT = [
+    "mri", "mr safe", "mr conditional", "mri unsafe", "magnetic resonance",
+    "mr unsafe", "mri safety", "not mri", "incompatible",
+]
+
+
 def _looks_correct(q_label: str, snippet: str, section: str | None) -> str:
     low = snippet.lower()
-    # If snippet starts with a product supply / catalog phrase → wrong
+    sec_up = (section or "").upper()
+
+    # If snippet is only supply/catalog boilerplate (no actual clinical content) → wrong.
+    # Exception: storage questions where the snippet also contains temperature / shelf life
+    # info are correct even if they begin with packaging language.
+    has_storage_signal = any(
+        w in low for w in ("°c", "°f", "shelf life", "humidity", "do not freeze", "store at")
+    )
     for bad in _WRONG_INDICATORS:
         if bad in low[:80]:
+            if q_label == "storage/shelf life" and has_storage_signal:
+                break  # don't reject — the snippet contains real storage info
             return "WRONG (catalog/supply boilerplate)"
-    # Section label sanity check
-    if q_label == "contraindications" and section and "CONTRAINDICATION" in section.upper():
-        return "CORRECT (section targeted)"
-    if q_label == "warnings" and section and any(w in section.upper() for w in ("WARNING", "CAUTION", "PRECAUTION")):
-        return "CORRECT (section targeted)"
-    if q_label == "storage/shelf life" and section and any(w in section.upper() for w in ("STORAGE", "SHELF")):
-        return "CORRECT (section targeted)"
-    if q_label == "MRI safety" and section and any(w in section.upper() for w in ("MRI", "MAGNETIC")):
-        return "CORRECT (section targeted)"
+
+    # Section label sanity check (primary signal)
+    if q_label == "contraindications":
+        if section and any(w in sec_up for w in ("CONTRAINDICATION", "WARNING", "PRECAUTION")):
+            return "CORRECT (section targeted)"
+        if any(w in low for w in _CONTRAINDICATION_CONTENT):
+            return "CORRECT (content match)"
+
+    if q_label == "warnings":
+        if section and any(w in sec_up for w in ("WARNING", "CAUTION", "PRECAUTION")):
+            return "CORRECT (section targeted)"
+        if any(w in low for w in _WARNING_CONTENT):
+            return "CORRECT (content match)"
+
+    if q_label == "storage/shelf life":
+        if section and any(w in sec_up for w in ("STORAGE", "SHELF", "HOW SUPPLIED", "SUPPLIED")):
+            return "CORRECT (section targeted)"
+        if any(w in low for w in _STORAGE_CONTENT):
+            return "CORRECT (content match)"
+
+    if q_label == "MRI safety":
+        if section and any(w in sec_up for w in ("MRI", "MAGNETIC", "RESONANCE")):
+            return "CORRECT (section targeted)"
+        if any(w in low for w in _MRI_CONTENT):
+            return "CORRECT (content match)"
+
     return "INDETERMINATE (check snippet)"
 
 

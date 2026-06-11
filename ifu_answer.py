@@ -569,24 +569,43 @@ def search_pages(
     """
     Section-aware IFU extraction.  Maps the question to a target IFU section,
     locates its body in non-TOC pages, and returns a snippet from that body.
-    Falls back to keyword page scoring when no target section is identified
-    or found in the parsed pages (preserving previous behaviour for edge cases).
+
+    Pass 1 — section heading search: find a matching section heading in non-TOC
+              pages, extract its body, return a snippet.
+    Pass 2 — storage phrase scan: if storage intent is detected but no heading
+              was found, scan for storage-condition phrases (temperature, humidity,
+              'store at', etc.) and return the densest match.
+    Pass 3 — keyword fallback: score pages by term coverage.  For section-intent
+              queries, require at least half the unique query terms to be present
+              to avoid returning irrelevant pages when the section truly does not
+              exist in the document.
     """
-    # Section-aware path
+    # Pass 1 — section-aware heading search
     target_sections = _infer_target_sections(question)
     if target_sections:
         section_hits = _section_aware_search(pages, question, target_sections, max_hits)
         if section_hits:
             return section_hits
 
-    # Keyword page-scoring fallback (original behaviour, now also skips TOC pages)
+        # Pass 2 — storage phrase scan (only when Pass 1 found nothing)
+        if _is_storage_question(question):
+            storage_hits = _find_storage_passage(pages)
+            if storage_hits:
+                return storage_hits
+
+    # Pass 3 — keyword page-scoring fallback (also skips TOC pages).
+    # For section-intent queries, require at least half the unique terms to match
+    # so that pages containing only a generic term like "device" are rejected when
+    # the section simply does not exist in the document.
     raw_terms = [t.lower() for t in re.split(r"\W+", question) if t and len(t) >= 2]
     terms = [t for t in raw_terms if t not in _STOP_WORDS]
     if not terms:
         terms = raw_terms
 
-    scored_hits: list[tuple[int, int, int, AnswerHit]] = []
     unique_terms = list(dict.fromkeys(terms))
+    min_coverage = max(1, (len(unique_terms) + 1) // 2) if target_sections else 1
+
+    scored_hits: list[tuple[int, int, int, AnswerHit]] = []
     for i, page in enumerate(pages):
         page_num, text = _page_number_and_text(i, page)
         if not _is_english_page(text):
@@ -597,6 +616,8 @@ def search_pages(
         if not any(t in low for t in terms):
             continue
         coverage = sum(1 for t in unique_terms if t in low)
+        if coverage < min_coverage:
+            continue
         occurrences = sum(low.count(t) for t in unique_terms)
         snippet, anchor = _best_snippet_and_anchor(text, low, terms)
         section = _extract_section(text, anchor) or "Relevant IFU passage"
@@ -693,8 +714,8 @@ _SECTION_KEYWORDS = frozenset({
 # Edit this table to add/adjust question keyword → IFU section mappings.
 # Keys are lower-cased; multi-word phrases are matched before single words.
 QUESTION_SECTION_MAP: dict[str, list[str]] = {
-    "contraindication":   ["CONTRAINDICATIONS"],
-    "contraindications":  ["CONTRAINDICATIONS"],
+    "contraindication":   ["CONTRAINDICATIONS", "WARNINGS AND PRECAUTIONS", "WARNINGS", "PRECAUTIONS"],
+    "contraindications":  ["CONTRAINDICATIONS", "WARNINGS AND PRECAUTIONS", "WARNINGS", "PRECAUTIONS"],
     "warning":            ["WARNINGS", "WARNINGS AND PRECAUTIONS", "CAUTIONS"],
     "warnings":           ["WARNINGS", "WARNINGS AND PRECAUTIONS", "CAUTIONS"],
     "precaution":         ["PRECAUTIONS", "WARNINGS AND PRECAUTIONS", "WARNINGS"],
@@ -722,6 +743,22 @@ QUESTION_SECTION_MAP: dict[str, list[str]] = {
 _NUMBERED_HEADING_RE = re.compile(
     r'^(\d{1,2}(?:\.\d{1,2})*)\s+([A-Z]\S+(?:\s+\S+){0,6})\s*$'
 )
+
+# Known IFU section names (lowercase) for title-case heading detection.
+_HEADING_SYNONYMS: frozenset[str] = frozenset({
+    "contraindications", "contraindication", "when not to use", "do not use if",
+    "warnings", "warning", "precautions", "precaution", "cautions", "caution",
+    "warnings and precautions", "precautions and warnings",
+    "storage", "storage and handling", "storage conditions", "storage information",
+    "how supplied", "how to store", "shelf life",
+    "indications", "indication", "indications for use", "intended use",
+    "cleaning", "sterilization", "cleaning and sterilization", "reprocessing",
+    "mri safety", "mri safety information", "mri information", "mr safety",
+    "magnetic resonance imaging",
+    "adverse events", "adverse effects", "complications",
+    "device description", "description", "implantation",
+    "directions for use", "instructions for use", "specifications",
+})
 
 
 def _infer_target_sections(question: str) -> list[str]:
@@ -771,6 +808,8 @@ def _is_body_heading(line: str) -> tuple[bool, str]:
         letters = [c for c in text_part if c.isalpha()]
         if letters and sum(1 for c in letters if c.isupper()) / len(letters) >= 0.80:
             return False, ""
+        if text_part.lower() in _HEADING_SYNONYMS:
+            return False, ""
 
     # Numbered heading: "2.0 CONTRAINDICATIONS" / "12.1 MRI Safety Information"
     m = _NUMBERED_HEADING_RE.match(clean)
@@ -788,7 +827,98 @@ def _is_body_heading(line: str) -> tuple[bool, str]:
         if upper_ratio >= 0.85 and 4 <= len(clean) <= 80 and len(clean.split()) <= 7:
             return True, clean.upper()
 
+    # Title-case heading matching a known IFU section name (e.g. "Storage", "Contraindications")
+    if not clean.endswith('.'):
+        candidate = clean.rstrip(':').strip()
+        if candidate.lower() in _HEADING_SYNONYMS and 1 <= len(candidate.split()) <= 6:
+            return True, candidate.upper()
+
     return False, ""
+
+
+# Storage-condition phrase patterns for phrase-based fallback detection.
+# Split into "dedicated" indicators (unambiguous storage context) and
+# "contextual" indicators (temperature values that could appear in MRI/clinical text).
+# _find_storage_passage requires at least one dedicated indicator per page.
+_STORAGE_INDICATORS_RE = re.compile(
+    r'(?:'
+    r'store(?:d)?\s+(?:at|below|in\s+a\s+cool)'
+    r'|storage\s+(?:temperature|condition|information)'
+    r'|cool[,\s]+dry\s+place'
+    r'|do\s+not\s+freeze'
+    r'|avoid\s+freezing'
+    r'|shelf\s+life'
+    r'|expir(?:y|ation)\s+date'
+    r'|protected?\s+from\s+(?:light|heat)'
+    r'|\d+\s*°\s*[CF]'
+    r'|relative\s+humidity'
+    r'|temperature[:\s]+\d'
+    r')',
+    re.IGNORECASE,
+)
+
+# Patterns that unambiguously indicate a storage context (not MRI/clinical).
+_STORAGE_DEDICATED_RE = re.compile(
+    r'(?:'
+    r'store(?:d)?\s+(?:at|below|in\s+a\s+cool)'
+    r'|storage\s+(?:temperature|condition|information)'
+    r'|cool[,\s]+dry\s+place'
+    r'|do\s+not\s+freeze'
+    r'|avoid\s+freezing'
+    r'|shelf\s+life'
+    r'|expir(?:y|ation)\s+date'
+    r'|relative\s+humidity'
+    r')',
+    re.IGNORECASE,
+)
+
+_STORAGE_ANCHOR_TERMS = [
+    "temperature", "humidity", "storage", "store", "freeze",
+    "cool", "shelf", "celsius", "fahrenheit", "dry",
+]
+
+
+def _is_storage_question(question: str) -> bool:
+    q = question.lower()
+    return any(w in q for w in ("storage", "shelf life", "shelf", "store", "temperature", "cool"))
+
+
+def _find_storage_passage(pages: list[ParsedPage]) -> list[AnswerHit]:
+    """
+    Phrase-based storage passage finder used when no STORAGE section heading exists.
+    Scans non-TOC English pages for storage-condition patterns (temperature ranges,
+    'store at', 'do not freeze', shelf life, etc.) and returns the best matching passage.
+    """
+    best_score = 0
+    best_hit: AnswerHit | None = None
+
+    for i, page in enumerate(pages):
+        page_num, text = _page_number_and_text(i, page)
+        if not _is_english_page(text):
+            continue
+        if _is_toc_page(text):
+            continue
+        matches = _STORAGE_INDICATORS_RE.findall(text)
+        if not matches:
+            continue
+        # Require at least one dedicated storage indicator so that temperature
+        # values in MRI safety or clinical sections (e.g. "3°C after scanning")
+        # do not masquerade as storage pages.
+        if not _STORAGE_DEDICATED_RE.search(text):
+            continue
+        score = len(matches)
+        if score > best_score:
+            best_score = score
+            low = text.lower()
+            snippet, _ = _best_snippet_and_anchor(text, low, _STORAGE_ANCHOR_TERMS)
+            if snippet:
+                best_hit = AnswerHit(
+                    page=page_num,
+                    snippet=snippet,
+                    section="Storage Conditions",
+                )
+
+    return [best_hit] if best_hit else []
 
 
 def _section_name_matches(heading: str, target: str) -> bool:
