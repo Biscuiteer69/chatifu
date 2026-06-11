@@ -567,10 +567,19 @@ def search_pages(
     max_hits: int = 5,
 ) -> list[AnswerHit]:
     """
-    Extract significant terms from the question (skip stop words),
-    skip non-English pages, score remaining pages by term coverage,
-    return top hits with sentence-boundary-aligned snippets.
+    Section-aware IFU extraction.  Maps the question to a target IFU section,
+    locates its body in non-TOC pages, and returns a snippet from that body.
+    Falls back to keyword page scoring when no target section is identified
+    or found in the parsed pages (preserving previous behaviour for edge cases).
     """
+    # Section-aware path
+    target_sections = _infer_target_sections(question)
+    if target_sections:
+        section_hits = _section_aware_search(pages, question, target_sections, max_hits)
+        if section_hits:
+            return section_hits
+
+    # Keyword page-scoring fallback (original behaviour, now also skips TOC pages)
     raw_terms = [t.lower() for t in re.split(r"\W+", question) if t and len(t) >= 2]
     terms = [t for t in raw_terms if t not in _STOP_WORDS]
     if not terms:
@@ -581,6 +590,8 @@ def search_pages(
     for i, page in enumerate(pages):
         page_num, text = _page_number_and_text(i, page)
         if not _is_english_page(text):
+            continue
+        if _is_toc_page(text):
             continue
         low = text.lower()
         if not any(t in low for t in terms):
@@ -674,6 +685,214 @@ _SECTION_KEYWORDS = frozenset({
     "instructions", "precaution", "precautions", "adverse", "storage",
     "sterile", "reuse", "single use", "description", "implantation",
 })
+
+# ------------------------------------------------------------------ #
+# Section-aware extraction — editable question→section mapping        #
+# ------------------------------------------------------------------ #
+
+# Edit this table to add/adjust question keyword → IFU section mappings.
+# Keys are lower-cased; multi-word phrases are matched before single words.
+QUESTION_SECTION_MAP: dict[str, list[str]] = {
+    "contraindication":   ["CONTRAINDICATIONS"],
+    "contraindications":  ["CONTRAINDICATIONS"],
+    "warning":            ["WARNINGS", "WARNINGS AND PRECAUTIONS", "CAUTIONS"],
+    "warnings":           ["WARNINGS", "WARNINGS AND PRECAUTIONS", "CAUTIONS"],
+    "precaution":         ["PRECAUTIONS", "WARNINGS AND PRECAUTIONS", "WARNINGS"],
+    "precautions":        ["PRECAUTIONS", "WARNINGS AND PRECAUTIONS", "WARNINGS"],
+    "shelf life":         ["STORAGE", "STORAGE AND HANDLING", "SHELF LIFE", "HOW SUPPLIED"],
+    "storage":            ["STORAGE", "STORAGE AND HANDLING", "STORAGE CONDITIONS", "HOW SUPPLIED"],
+    "shelf":              ["STORAGE", "STORAGE AND HANDLING", "HOW SUPPLIED"],
+    "store":              ["STORAGE", "STORAGE AND HANDLING", "HOW SUPPLIED"],
+    "temperature":        ["STORAGE", "STORAGE AND HANDLING", "STORAGE CONDITIONS", "HOW SUPPLIED"],
+    "magnetic resonance": ["MRI SAFETY", "MRI SAFETY INFORMATION", "MAGNETIC RESONANCE IMAGING"],
+    "mr safe":            ["MRI SAFETY", "MRI SAFETY INFORMATION", "MRI INFORMATION"],
+    "mr conditional":     ["MRI SAFETY", "MRI SAFETY INFORMATION", "MRI INFORMATION"],
+    "mri":                ["MRI SAFETY", "MRI SAFETY INFORMATION", "MRI INFORMATION",
+                           "MAGNETIC RESONANCE", "MAGNETIC RESONANCE IMAGING"],
+    "indication":         ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    "indications":        ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    "intended use":       ["INTENDED USE", "INDICATIONS FOR USE", "INDICATIONS"],
+    "cleaning":           ["CLEANING", "CLEANING AND STERILIZATION", "REPROCESSING"],
+    "steriliz":           ["STERILIZATION", "CLEANING AND STERILIZATION", "REPROCESSING"],
+    "adverse":            ["ADVERSE EVENTS", "ADVERSE EFFECTS", "COMPLICATIONS"],
+    "complication":       ["COMPLICATIONS", "ADVERSE EVENTS"],
+}
+
+# Numbered section heading: "2.0 SECTION NAME" or "12.1 MRI Safety Information"
+_NUMBERED_HEADING_RE = re.compile(
+    r'^(\d{1,2}(?:\.\d{1,2})*)\s+([A-Z]\S+(?:\s+\S+){0,6})\s*$'
+)
+
+
+def _infer_target_sections(question: str) -> list[str]:
+    """Map question text to priority-ordered IFU section names."""
+    q = question.lower()
+    for phrase in sorted(QUESTION_SECTION_MAP, key=len, reverse=True):
+        if phrase in q:
+            return QUESTION_SECTION_MAP[phrase]
+    return []
+
+
+def _is_toc_page(text: str) -> bool:
+    """
+    True when this page is primarily a table-of-contents / index page.
+    Uses fraction-based thresholds so a mixed page (e.g. multilingual directory
+    embedded on the same page as real content) is NOT misclassified.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return False
+    # A line qualifies as a TOC line if it has a dot-leader pattern
+    toc_lines = sum(1 for ln in lines if re.search(r'\.{3,}', ln))
+    if toc_lines >= 3 and toc_lines / len(lines) >= 0.40:
+        return True
+    # Also catch TOCs without dot leaders: section-name + trailing page number
+    ref_lines = sum(1 for ln in lines if re.search(r'[A-Z]{3,}.*\s\d{1,3}\s*$', ln))
+    return ref_lines >= 3 and ref_lines / len(lines) >= 0.40
+
+
+def _is_body_heading(line: str) -> tuple[bool, str]:
+    """
+    Return (is_heading, normalised_section_name).
+    Accepts numbered headings and short all-caps lines; rejects TOC entries and
+    sentence-like lines (ending with '.').
+    """
+    clean = re.sub(r'\s+', ' ', line).strip()
+    if not clean or len(clean) > 120:
+        return False, ""
+    if re.match(r'^\d+\s*$', clean):
+        return False, ""
+    # Reject dot-leader TOC entries
+    if re.search(r'\.{3,}', clean):
+        return False, ""
+    # Reject heading text + trailing bare page number (TOC without dot leaders)
+    if re.search(r'\s\d{1,3}\s*$', clean):
+        text_part = re.sub(r'\s+\d{1,3}\s*$', '', clean).strip()
+        letters = [c for c in text_part if c.isalpha()]
+        if letters and sum(1 for c in letters if c.isupper()) / len(letters) >= 0.80:
+            return False, ""
+
+    # Numbered heading: "2.0 CONTRAINDICATIONS" / "12.1 MRI Safety Information"
+    m = _NUMBERED_HEADING_RE.match(clean)
+    if m:
+        section_text = m.group(2).strip()
+        if not section_text.endswith('.') and len(section_text.split()) <= 7:
+            return True, section_text.upper()
+
+    # Short all-caps heading line (no trailing period)
+    if not clean.endswith('.'):
+        letters = [c for c in clean if c.isalpha()]
+        if not letters:
+            return False, ""
+        upper_ratio = sum(1 for c in letters if c.isupper()) / len(letters)
+        if upper_ratio >= 0.85 and 4 <= len(clean) <= 80 and len(clean.split()) <= 7:
+            return True, clean.upper()
+
+    return False, ""
+
+
+def _section_name_matches(heading: str, target: str) -> bool:
+    """True when a detected heading name corresponds to a target section."""
+    h = heading.upper().strip()
+    t = target.upper().strip()
+    if t in h or h in t:
+        return True
+    fill = {"AND", "FOR", "OF", "THE", "IN", "TO", "A", "AN", "WITH", "OR"}
+    t_words = set(t.split()) - fill
+    h_words = set(h.split())
+    return bool(t_words) and t_words <= h_words
+
+
+def _extract_section_body(
+    pages: list[ParsedPage],
+    start_page_idx: int,
+    heading_end_pos: int,
+    max_chars: int = 3000,
+) -> str:
+    """
+    Extract the section body starting just after the heading at
+    (start_page_idx, heading_end_pos), continuing across pages until the next
+    section heading or max_chars is reached.
+    """
+    parts: list[str] = []
+    total = 0
+    first_segment = True
+
+    for i in range(start_page_idx, len(pages)):
+        _, text = _page_number_and_text(i, pages[i])
+        segment = text[heading_end_pos:] if i == start_page_idx else text
+        heading_end_pos = 0
+
+        stop = False
+        for raw_line in segment.splitlines(True):
+            stripped = raw_line.strip()
+            if first_segment and not stripped:
+                continue  # skip blank lines immediately after the heading
+            first_segment = False
+            if stripped:
+                is_h, _ = _is_body_heading(stripped)
+                if is_h:
+                    stop = True
+                    break
+            parts.append(raw_line)
+            total += len(raw_line)
+            if total >= max_chars:
+                stop = True
+                break
+
+        if stop:
+            break
+
+    return re.sub(r'\s+', ' ', ''.join(parts)).strip()
+
+
+def _section_aware_search(
+    pages: list[ParsedPage],
+    question: str,
+    target_sections: list[str],
+    max_hits: int,
+) -> list[AnswerHit]:
+    """
+    Locate target section headings in non-TOC pages and extract their bodies.
+    """
+    terms = [t.lower() for t in re.split(r'\W+', question) if t and len(t) >= 2]
+    terms = [t for t in terms if t not in _STOP_WORDS] or terms
+    hits: list[AnswerHit] = []
+
+    for i, page in enumerate(pages):
+        page_num, text = _page_number_and_text(i, page)
+        if not _is_english_page(text):
+            continue
+        if _is_toc_page(text):
+            continue
+
+        pos = 0
+        for raw_line in text.splitlines(True):
+            stripped = raw_line.strip()
+            if stripped:
+                is_h, section_name = _is_body_heading(stripped)
+                if is_h:
+                    for target in target_sections:
+                        if _section_name_matches(section_name, target):
+                            heading_end = pos + len(raw_line)
+                            body = _extract_section_body(pages, i, heading_end)
+                            if body:
+                                low = body.lower()
+                                snippet, _ = _best_snippet_and_anchor(body, low, terms)
+                                if not snippet:
+                                    snippet = _clean_snippet(body[:400])
+                                hits.append(AnswerHit(
+                                    page=page_num,
+                                    snippet=snippet,
+                                    section=section_name,
+                                ))
+                            break
+            pos += len(raw_line)
+
+        if len(hits) >= max_hits:
+            break
+
+    return hits
 
 
 def _extract_section(text: str, anchor: int) -> str | None:

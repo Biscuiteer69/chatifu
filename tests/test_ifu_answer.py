@@ -16,6 +16,12 @@ from ifu_answer import (
     _is_gate_page,
     _is_english_page,
     _parse_pdf_limited,
+    _infer_target_sections,
+    _is_toc_page,
+    _is_body_heading,
+    _section_name_matches,
+    _extract_section_body,
+    _section_aware_search,
 )
 
 
@@ -523,6 +529,166 @@ class GatePageDetectionTests(unittest.TestCase):
             '<iframe src="/fetchPdf/1/1/0/eifu/test.pdf"></iframe></form>'
         )
         self.assertFalse(_is_gate_page(html))
+
+
+# ------------------------------------------------------------------
+# Section-aware extraction unit tests
+# ------------------------------------------------------------------
+
+class InferTargetSectionsTests(unittest.TestCase):
+    def test_contraindications_maps_correctly(self) -> None:
+        self.assertEqual(_infer_target_sections("what are the contraindications?"), ["CONTRAINDICATIONS"])
+
+    def test_warnings_maps_correctly(self) -> None:
+        targets = _infer_target_sections("list the warnings")
+        self.assertIn("WARNINGS", targets)
+
+    def test_shelf_life_phrase_takes_priority_over_shelf(self) -> None:
+        targets = _infer_target_sections("what is the shelf life?")
+        self.assertIn("STORAGE", targets)
+
+    def test_mri_maps_to_mri_safety(self) -> None:
+        targets = _infer_target_sections("is this device MRI safe?")
+        self.assertTrue(any("MRI" in t for t in targets))
+
+    def test_unknown_question_returns_empty(self) -> None:
+        self.assertEqual(_infer_target_sections("how many units per box?"), [])
+
+
+class IsTocPageTests(unittest.TestCase):
+    def test_dot_leader_page_is_toc(self) -> None:
+        text = (
+            "Table of Contents\n"
+            "CONTRAINDICATIONS ......... 4\n"
+            "WARNINGS .................. 5\n"
+            "STORAGE ................... 9\n"
+        )
+        self.assertTrue(_is_toc_page(text))
+
+    def test_body_page_is_not_toc(self) -> None:
+        text = (
+            "2.0 CONTRAINDICATIONS\n"
+            "This device should not be used in patients with known hypersensitivity.\n"
+            "Active systemic infection is also a contraindication.\n"
+        )
+        self.assertFalse(_is_toc_page(text))
+
+    def test_many_toc_ref_lines_flagged(self) -> None:
+        text = "WARNINGS 5\nCONTRAINDICATIONS 4\nSTORAGE 9\nINDICATIONS 3\n"
+        self.assertTrue(_is_toc_page(text))
+
+
+class IsBodyHeadingTests(unittest.TestCase):
+    def test_all_caps_heading(self) -> None:
+        is_h, name = _is_body_heading("CONTRAINDICATIONS")
+        self.assertTrue(is_h)
+        self.assertEqual(name, "CONTRAINDICATIONS")
+
+    def test_numbered_heading_all_caps(self) -> None:
+        is_h, name = _is_body_heading("2.0 CONTRAINDICATIONS")
+        self.assertTrue(is_h)
+        self.assertIn("CONTRAINDICATIONS", name)
+
+    def test_numbered_heading_mixed_case(self) -> None:
+        is_h, name = _is_body_heading("12.1 MRI Safety Information")
+        self.assertTrue(is_h)
+        self.assertIn("MRI", name)
+
+    def test_sentence_not_a_heading(self) -> None:
+        is_h, _ = _is_body_heading("This device is for single use only.")
+        self.assertFalse(is_h)
+
+    def test_toc_entry_with_dot_leaders_rejected(self) -> None:
+        is_h, _ = _is_body_heading("CONTRAINDICATIONS ......... 4")
+        self.assertFalse(is_h)
+
+    def test_toc_entry_with_trailing_page_number_rejected(self) -> None:
+        is_h, _ = _is_body_heading("CONTRAINDICATIONS 4")
+        self.assertFalse(is_h)
+
+    def test_bare_page_number_rejected(self) -> None:
+        is_h, _ = _is_body_heading("42")
+        self.assertFalse(is_h)
+
+    def test_warnings_and_precautions(self) -> None:
+        is_h, name = _is_body_heading("WARNINGS AND PRECAUTIONS")
+        self.assertTrue(is_h)
+        self.assertIn("WARNINGS", name)
+
+
+class SectionNameMatchesTests(unittest.TestCase):
+    def test_exact_match(self) -> None:
+        self.assertTrue(_section_name_matches("CONTRAINDICATIONS", "CONTRAINDICATIONS"))
+
+    def test_target_in_heading(self) -> None:
+        self.assertTrue(_section_name_matches("WARNINGS AND PRECAUTIONS", "WARNINGS"))
+
+    def test_key_words_match(self) -> None:
+        self.assertTrue(_section_name_matches("MRI SAFETY INFORMATION", "MRI SAFETY"))
+
+    def test_no_match(self) -> None:
+        self.assertFalse(_section_name_matches("INDICATIONS FOR USE", "CONTRAINDICATIONS"))
+
+
+class ExtractSectionBodyTests(unittest.TestCase):
+    def test_extracts_until_next_heading(self) -> None:
+        pages = [
+            "2.0 CONTRAINDICATIONS\nDo not use in infected patients.\nAvoid reuse.\n"
+            "3.0 WARNINGS\nWarnings text here.\n"
+        ]
+        body = _extract_section_body(pages, 0, len("2.0 CONTRAINDICATIONS\n"))
+        self.assertIn("infected", body)
+        self.assertNotIn("Warnings text", body)
+
+    def test_continues_across_pages(self) -> None:
+        pages = [
+            "2.0 CONTRAINDICATIONS\nFirst contraindication text.\n",
+            "Additional contraindication detail.\n3.0 WARNINGS\nWarning here.\n",
+        ]
+        body = _extract_section_body(pages, 0, len("2.0 CONTRAINDICATIONS\n"))
+        self.assertIn("First contraindication", body)
+        self.assertIn("Additional contraindication", body)
+        self.assertNotIn("Warning here", body)
+
+
+class SectionAwareSearchTests(unittest.TestCase):
+    def test_finds_contraindications_section(self) -> None:
+        pages = [
+            "Product description. This is the SGC0101 model, supplied sterile.\n",
+            "CONTRAINDICATIONS\nDo not use in patients with active infection.\nAvoid in hypersensitive patients.\n",
+        ]
+        hits = _section_aware_search(pages, "contraindications", ["CONTRAINDICATIONS"], max_hits=5)
+        self.assertEqual(len(hits), 1)
+        self.assertNotIn("supplied", hits[0].snippet)
+        self.assertIn("infection", hits[0].snippet)
+
+    def test_skips_toc_page(self) -> None:
+        pages = [
+            "CONTRAINDICATIONS ......... 4\nWARNINGS .................. 5\n",
+            "CONTRAINDICATIONS\nDo not use in infected patients.\n",
+        ]
+        hits = _section_aware_search(pages, "contraindications", ["CONTRAINDICATIONS"], max_hits=5)
+        self.assertEqual(len(hits), 1)
+        self.assertIn("infected", hits[0].snippet)
+
+    def test_search_pages_uses_section_aware_path(self) -> None:
+        pages = [
+            "SGC0101 is supplied sterile and ready for use.\n",
+            "CONTRAINDICATIONS\nDo not use in patients with active infection.\n"
+            "Also contraindicated in patients with known hypersensitivity.\n",
+        ]
+        hits = search_pages(pages, "what are the contraindications", max_hits=5)
+        self.assertEqual(len(hits), 1)
+        self.assertNotIn("supplied", hits[0].snippet)
+        self.assertIn("infection", hits[0].snippet)
+
+    def test_falls_back_to_keyword_search_when_no_section(self) -> None:
+        pages = [
+            "The device has a 5-year shelf life. Store at room temperature.",
+        ]
+        hits = search_pages(pages, "shelf life", max_hits=5)
+        self.assertEqual(len(hits), 1)
+        self.assertIn("shelf life", hits[0].snippet.lower())
 
 
 if __name__ == "__main__":
