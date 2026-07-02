@@ -330,28 +330,35 @@ def device_sku(device: dict[str, Any]) -> str:
 
 
 def pending_devices(company_like: str, limit: int) -> list[dict[str, Any]]:
+    # Anti-join against processed_skus so already-processed rows never consume
+    # the candidate window (the old limit*50 scan starved once the first rows
+    # by catalog_number were all processed, silently returning 0 pending).
+    # The sku expression mirrors device_sku(): catalog -> model -> PrimaryDI(id).
     conn = sqlite()
-    scan_limit = max(limit * 50, 500)
     rows = conn.execute(
         """
-        select raw_json
-        from devices
-        where lower(company_name) like lower(?)
-        order by catalog_number, model_number
+        select d.raw_json
+        from devices d
+        left join processed_skus p
+            on p.sku = coalesce(
+                nullif(trim(d.catalog_number), ''),
+                nullif(trim(d.model_number), ''),
+                d.id
+            )
+        where lower(d.company_name) like lower(?)
+          and p.sku is null
+        order by d.catalog_number, d.model_number
         limit ?
         """,
-        (company_like, scan_limit),
+        (company_like, limit),
     ).fetchall()
     conn.close()
 
     pending: list[dict[str, Any]] = []
     for row in rows:
         device = json.loads(row["raw_json"])
-        sku = device_sku(device)
-        if sku and not sku_processed(str(sku)):
+        if device_sku(device):
             pending.append(device)
-        if len(pending) >= limit:
-            break
     return pending
 
 
