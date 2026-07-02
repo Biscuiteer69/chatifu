@@ -1,46 +1,24 @@
 from __future__ import annotations
 
 import argparse
-import os
 from textwrap import shorten
 
-import requests
-
-from vault import COLLECTION, qdrant
-
-
-OLLAMA_URL = os.environ.get("CHATIFU_OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embeddings")
-EMBED_MODEL = os.environ.get("CHATIFU_EMBED_MODEL", "nomic-embed-text")
-
-
-def embed(text: str) -> list[float]:
-    res = requests.post(OLLAMA_URL, json={"model": EMBED_MODEL, "prompt": text}, timeout=60)
-    res.raise_for_status()
-    vector = res.json().get("embedding")
-    if not isinstance(vector, list):
-        raise RuntimeError("Ollama embedding response did not include an embedding list.")
-    return [float(x) for x in vector]
+from ollama_client import embed
+from vault import search_chunks
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Query the local ChatIFU Qdrant vault.")
     parser.add_argument("question")
     parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--sku")
+    parser.add_argument("--source")
     args = parser.parse_args()
 
-    client = qdrant()
-    response = client.query_points(
-        collection_name=COLLECTION,
-        query=embed(args.question),
-        limit=args.limit,
-        with_payload=True,
-    )
-    for index, point in enumerate(response.points, start=1):
-        payload = point.payload or {}
-        metadata = payload.get("metadata") or {}
-        content = str(payload.get("content") or "")
-        print(f"{index}. score={point.score:.4f} sku={metadata.get('sku')} source={metadata.get('source')}")
-        print(f"   {shorten(content.replace(chr(10), ' '), width=260, placeholder='...')}")
+    matches = search_chunks(embed(args.question), limit=args.limit, sku=args.sku, source=args.source)
+    for index, match in enumerate(matches, start=1):
+        print(f"{index}. score={match.score:.4f} sku={match.metadata.get('sku')} source={match.metadata.get('source')}")
+        print(f"   {shorten(match.content.replace(chr(10), ' '), width=260, placeholder='...')}")
 
 
 if __name__ == "__main__":

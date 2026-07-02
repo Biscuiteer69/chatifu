@@ -1,24 +1,41 @@
 from __future__ import annotations
 
-from vault import COLLECTION, qdrant, sqlite
+import argparse
+import json
+
+from ollama_client import ollama_health
+from vault import vault_stats
 
 
 def main() -> None:
-    conn = sqlite()
-    devices = conn.execute("select count(*) from devices").fetchone()[0]
-    processed = conn.execute("select count(*) from processed_skus").fetchone()[0]
-    conn.close()
+    parser = argparse.ArgumentParser(description="Show ChatIFU local vault status.")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    parser.add_argument("--deep", action="store_true", help="Also check Ollama embedding health.")
+    parser.add_argument("--exact-vectors", action="store_true", help="Use an exact vector count.")
+    args = parser.parse_args()
 
-    client = qdrant()
-    count = client.count(collection_name=COLLECTION, exact=True).count
+    stats = vault_stats(exact_vectors=args.exact_vectors)
+    if args.deep:
+        stats["ollama"] = ollama_health()
 
-    print(f"ChatIFU local vault")
-    print(f"- Qdrant collection: {COLLECTION}")
-    print(f"- Vector chunks: {count}")
-    print(f"- Devices: {devices}")
-    print(f"- Processed SKUs: {processed}")
+    if args.json:
+        print(json.dumps(stats, indent=2))
+        return
+
+    print("ChatIFU local vault")
+    print(f"- Qdrant collection: {stats['collection']}")
+    print(f"- Vector chunks: {stats['vector_chunks']}")
+    print(f"- Devices: {stats['counts']['devices']}")
+    print(f"- Processed SKUs: {stats['counts']['processed_skus']}")
+    if stats["processed_statuses"]:
+        print("- Processed statuses:")
+        for status, count in stats["processed_statuses"].items():
+            print(f"  - {status}: {count}")
+    if args.deep:
+        print(f"- Ollama embeddings: {'ok' if stats['ollama']['ok'] else 'error'}")
+        if not stats["ollama"]["ok"]:
+            print(f"  - {stats['ollama']['error']}")
 
 
 if __name__ == "__main__":
     main()
-

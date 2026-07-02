@@ -55,3 +55,7 @@ fda/
 
 # Local assistant/config state
 .claude/
+
+# Runtime state
+latest_status.json
+run/

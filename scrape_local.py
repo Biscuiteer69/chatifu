@@ -3,10 +3,8 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import os
 import re
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
@@ -15,13 +13,8 @@ import requests
 from playwright.sync_api import sync_playwright
 
 from company_targets import TOP_DEVICE_TARGETS, implemented_targets, target_by_key
+from ollama_client import embed, generate
 from vault import DocumentChunk, device_sku, mark_sku, pending_devices, pending_devices_any, upsert_chunks
-
-
-OLLAMA_URL = os.environ.get("CHATIFU_OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embeddings")
-EMBED_MODEL = os.environ.get("CHATIFU_EMBED_MODEL", "nomic-embed-text")
-DOC_MODEL = os.environ.get("CHATIFU_DOC_MODEL", "qwen3:14b")
-DOC_GENERATE_URL = os.environ.get("CHATIFU_DOC_GENERATE_URL", "http://127.0.0.1:11434/api/generate")
 
 
 def chunks(text: str, chunk_size: int = 1024, overlap: int = 128) -> list[str]:
@@ -31,15 +24,6 @@ def chunks(text: str, chunk_size: int = 1024, overlap: int = 128) -> list[str]:
         output.append(text[start : start + chunk_size])
         start += chunk_size - overlap
     return [part for part in output if part.strip()]
-
-
-def embed(text: str) -> list[float]:
-    res = requests.post(OLLAMA_URL, json={"model": EMBED_MODEL, "prompt": text}, timeout=60)
-    res.raise_for_status()
-    vector = res.json().get("embedding")
-    if not isinstance(vector, list):
-        raise RuntimeError("Ollama embedding response did not include an embedding list.")
-    return [float(x) for x in vector]
 
 
 def pdf_text(pdf_bytes: bytes) -> str:
@@ -87,13 +71,7 @@ HTML snippet:
 {html[:9000]}
 """
     try:
-        res = requests.post(
-            DOC_GENERATE_URL,
-            json={"model": DOC_MODEL, "prompt": prompt, "stream": False},
-            timeout=90,
-        )
-        res.raise_for_status()
-        response = str(res.json().get("response", ""))
+        response = generate(prompt)
         match = re.search(r"\{.*\}", response, flags=re.DOTALL)
         if not match:
             return {}

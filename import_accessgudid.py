@@ -7,19 +7,15 @@ import json
 import os
 import sqlite3
 import sys
-import time
-import urllib.parse
-import urllib.request
 import zipfile
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from company_targets import TOP_DEVICE_TARGETS, target_by_key
 
 
 DEFAULT_SQLITE = Path(os.environ.get("CHATIFU_SQLITE_PATH", "/home/biscuited/projects/chatifu_vault/chatifu.sqlite3"))
-OPENFDA_UDI_URL = "https://api.fda.gov/device/udi.json"
 
 
 def schema(conn: sqlite3.Connection) -> None:
@@ -142,9 +138,6 @@ def iter_device_rows(source: Path):
 
 
 def import_devices(args: argparse.Namespace) -> Counter:
-    if args.openfda_company:
-        return import_openfda_company(args)
-
     target_keys = args.target or [str(target["key"]) for target in TOP_DEVICE_TARGETS]
     patterns_by_target = normalized_patterns(target_keys)
     conn = None
@@ -189,113 +182,18 @@ def import_devices(args: argparse.Namespace) -> Counter:
     return counts
 
 
-def import_openfda_company(args: argparse.Namespace) -> Counter:
-    conn = None
-    if not args.dry_run:
-        args.sqlite.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(args.sqlite)
-        schema(conn)
-
-    counts: Counter = Counter()
-    batch: list[dict[str, str]] = []
-    skip = 0
-    limit = min(args.openfda_page_size, 1000)
-    total: int | None = None
-    while total is None or skip < total:
-        if args.limit and counts["matched"] >= args.limit:
-            break
-        page_limit = limit
-        if args.limit:
-            page_limit = min(page_limit, args.limit - counts["matched"])
-        payload = fetch_openfda_company_page(args.openfda_company, page_limit, skip, args.timeout)
-        results = payload.get("results") or []
-        total = int(((payload.get("meta") or {}).get("results") or {}).get("total") or len(results))
-        counts["read"] += len(results)
-        if not results:
-            break
-
-        for raw in results:
-            row = openfda_row_to_device(raw, args.openfda_company)
-            counts["matched"] += 1
-            counts["target:edwards"] += 1
-            if args.dry_run:
-                continue
-            batch.append(row)
-            if len(batch) >= args.batch_size:
-                assert conn is not None
-                with conn:
-                    upsert_batch(conn, batch)
-                batch.clear()
-                print(f"[openfda-import] matched={counts['matched']} read={counts['read']}", flush=True)
-
-        skip += len(results)
-        if args.openfda_delay:
-            time.sleep(args.openfda_delay)
-
-    if batch and not args.dry_run:
-        assert conn is not None
-        with conn:
-            upsert_batch(conn, batch)
-    if conn is not None:
-        conn.close()
-    return counts
-
-
-def fetch_openfda_company_page(company: str, limit: int, skip: int, timeout: int) -> dict[str, Any]:
-    params = {
-        "search": f'company_name:"{company}"',
-        "limit": str(limit),
-        "skip": str(skip),
-    }
-    url = f"{OPENFDA_UDI_URL}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url, headers={"User-Agent": "ChatIFU/1.0", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def openfda_row_to_device(raw: dict[str, Any], target_company: str) -> dict[str, str]:
-    mapped = {
-        "PrimaryDI": _primary_di(raw),
-        "publicDeviceRecordKey": raw.get("public_device_record_key", ""),
-        "companyName": raw.get("company_name", ""),
-        "brandName": raw.get("brand_name", ""),
-        "versionModelNumber": raw.get("version_or_model_number", ""),
-        "catalogNumber": raw.get("catalog_number", ""),
-        "_chatifu_target": "edwards" if "edwards" in target_company.lower() else "all",
-        "_fda_source": "openfda_device_udi",
-        "_openfda": raw,
-    }
-    return row_to_device(mapped, mapped["_chatifu_target"], "openfda_device_udi")
-
-
-def _primary_di(raw: dict[str, Any]) -> str:
-    identifiers = raw.get("identifiers") or []
-    for item in identifiers:
-        if isinstance(item, dict) and str(item.get("type") or "").lower() == "primary":
-            return str(item.get("id") or "")
-    return ""
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import FDA AccessGUDID device targets into the local ChatIFU SQLite queue.")
-    parser.add_argument("--source", type=Path, help="AccessGUDID device.txt or full-release zip.")
+    parser.add_argument("--source", type=Path, required=True, help="AccessGUDID device.txt or full-release zip.")
     parser.add_argument("--sqlite", type=Path, default=DEFAULT_SQLITE)
     parser.add_argument("--target", action="append", help="Target key to import. Repeatable. Defaults to all top-20 targets.")
     parser.add_argument("--all-companies", action="store_true", help="Import every company instead of filtering to targets.")
     parser.add_argument("--limit", type=int, help="Stop after this many matched rows.")
     parser.add_argument("--batch-size", type=int, default=5000)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--openfda-company", help="Import live OpenFDA UDI records for a company name.")
-    parser.add_argument("--openfda-page-size", type=int, default=1000)
-    parser.add_argument("--openfda-delay", type=float, default=0.0)
-    parser.add_argument("--timeout", type=int, default=30)
     args = parser.parse_args()
 
-    if args.openfda_company:
-        args.source = args.source or Path("openfda")
-    elif args.source is None:
-        raise SystemExit("--source is required unless --openfda-company is supplied")
-    elif not args.source.exists():
+    if not args.source.exists():
         raise SystemExit(f"Source not found: {args.source}")
     counts = import_devices(args)
     json.dump(counts, sys.stdout, indent=2)

@@ -8,15 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, PointStruct, VectorParams
-
 
 VAULT_DIR = Path(os.environ.get("CHATIFU_VAULT_DIR", "/home/biscuited/projects/chatifu_vault"))
 QDRANT_PATH = Path(os.environ.get("CHATIFU_QDRANT_PATH", str(VAULT_DIR / "qdrant")))
 SQLITE_PATH = Path(os.environ.get("CHATIFU_SQLITE_PATH", str(VAULT_DIR / "chatifu.sqlite3")))
 COLLECTION = os.environ.get("CHATIFU_COLLECTION", "chatifu_documents")
 VECTOR_SIZE = int(os.environ.get("CHATIFU_VECTOR_SIZE", "768"))
+_QDRANT_CLIENT: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -27,6 +25,24 @@ class DocumentChunk:
     source_id: str | None = None
 
 
+@dataclass(frozen=True)
+class SearchMatch:
+    score: float
+    content: str
+    metadata: dict[str, Any]
+    source_id: str | None
+    point_id: str
+
+
+def _qdrant_types() -> tuple[Any, Any, Any, Any]:
+    try:
+        from qdrant_client import QdrantClient
+        from qdrant_client.http.models import Distance, PointStruct, VectorParams
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("Missing dependency: install qdrant-client to use the ChatIFU vector vault.") from exc
+    return QdrantClient, Distance, PointStruct, VectorParams
+
+
 def stable_point_id(source_id: str | None, metadata: dict[str, Any]) -> str:
     raw = source_id or json.dumps(metadata, sort_keys=True, default=str)
     try:
@@ -35,12 +51,23 @@ def stable_point_id(source_id: str | None, metadata: dict[str, Any]) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, str(raw)))
 
 
+def validate_embedding(embedding: Iterable[Any], source: str = "embedding") -> list[float]:
+    vector = [float(value) for value in embedding]
+    if len(vector) != VECTOR_SIZE:
+        raise ValueError(f"{source} has {len(vector)} dimensions; expected {VECTOR_SIZE}.")
+    return vector
+
+
 def ensure_dirs() -> None:
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     QDRANT_PATH.mkdir(parents=True, exist_ok=True)
 
 
-def qdrant() -> QdrantClient:
+def qdrant() -> Any:
+    global _QDRANT_CLIENT
+    if _QDRANT_CLIENT is not None:
+        return _QDRANT_CLIENT
+    QdrantClient, Distance, _, VectorParams = _qdrant_types()
     ensure_dirs()
     client = QdrantClient(path=str(QDRANT_PATH))
     existing = {collection.name for collection in client.get_collections().collections}
@@ -49,6 +76,7 @@ def qdrant() -> QdrantClient:
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
         )
+    _QDRANT_CLIENT = client
     return client
 
 
@@ -128,6 +156,7 @@ def upsert_devices(devices: Iterable[dict[str, Any]]) -> int:
 
 
 def upsert_chunks(chunks: Iterable[DocumentChunk]) -> int:
+    _, _, PointStruct, _ = _qdrant_types()
     client = qdrant()
     conn = sqlite()
     points: list[tuple[str, list[float], dict[str, Any]]] = []
@@ -140,7 +169,8 @@ def upsert_chunks(chunks: Iterable[DocumentChunk]) -> int:
             "metadata": metadata,
             "source_id": chunk.source_id,
         }
-        points.append((stable_point_id(chunk.source_id, metadata), chunk.embedding, payload))
+        point_id = stable_point_id(chunk.source_id, metadata)
+        points.append((point_id, validate_embedding(chunk.embedding, point_id), payload))
         if sku:
             conn.execute(
                 """
@@ -166,6 +196,102 @@ def upsert_chunks(chunks: Iterable[DocumentChunk]) -> int:
     conn.commit()
     conn.close()
     return count
+
+
+def _query_filter(sku: str | None = None, source: str | None = None) -> Any | None:
+    if not sku and not source:
+        return None
+    try:
+        from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("Missing dependency: install qdrant-client to use the ChatIFU vector vault.") from exc
+
+    conditions = []
+    if sku:
+        conditions.append(FieldCondition(key="metadata.sku", match=MatchValue(value=str(sku))))
+    if source:
+        conditions.append(FieldCondition(key="metadata.source", match=MatchValue(value=str(source))))
+    return Filter(must=conditions)
+
+
+def search_chunks(
+    query_embedding: Iterable[Any],
+    limit: int = 5,
+    min_score: float = 0.0,
+    sku: str | None = None,
+    source: str | None = None,
+) -> list[SearchMatch]:
+    client = qdrant()
+    response = client.query_points(
+        collection_name=COLLECTION,
+        query=validate_embedding(query_embedding, "query"),
+        query_filter=_query_filter(sku=sku, source=source),
+        limit=max(1, min(limit, 25)),
+        with_payload=True,
+    )
+    matches: list[SearchMatch] = []
+    for point in response.points:
+        score = float(point.score)
+        if score < min_score:
+            continue
+        payload = point.payload or {}
+        metadata = payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        matches.append(
+            SearchMatch(
+                score=score,
+                content=str(payload.get("content") or ""),
+                metadata=metadata,
+                source_id=payload.get("source_id"),
+                point_id=str(point.id),
+            )
+        )
+    return matches
+
+
+def sqlite_counts() -> dict[str, int]:
+    conn = sqlite()
+    try:
+        devices = int(conn.execute("select count(*) from devices").fetchone()[0])
+        processed = int(conn.execute("select count(*) from processed_skus").fetchone()[0])
+        return {"devices": devices, "processed_skus": processed}
+    finally:
+        conn.close()
+
+
+def processed_status_counts() -> dict[str, int]:
+    conn = sqlite()
+    try:
+        rows = conn.execute(
+            """
+            select status, count(*) as count
+            from processed_skus
+            group by status
+            order by count desc, status
+            """
+        ).fetchall()
+        return {str(row["status"]): int(row["count"]) for row in rows}
+    finally:
+        conn.close()
+
+
+def vector_count(exact: bool = True) -> int:
+    client = qdrant()
+    return int(client.count(collection_name=COLLECTION, exact=exact).count)
+
+
+def vault_stats(exact_vectors: bool = False) -> dict[str, Any]:
+    return {
+        "vault_dir": str(VAULT_DIR),
+        "sqlite_path": str(SQLITE_PATH),
+        "qdrant_path": str(QDRANT_PATH),
+        "collection": COLLECTION,
+        "vector_size": VECTOR_SIZE,
+        "counts": sqlite_counts(),
+        "processed_statuses": processed_status_counts(),
+        "vector_chunks": vector_count(exact=exact_vectors),
+    }
 
 
 def mark_sku(sku: str, status: str, source: str) -> None:
