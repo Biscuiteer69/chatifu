@@ -5,10 +5,12 @@ import csv
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import zipfile
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -59,10 +61,19 @@ def normalized_patterns(target_keys: Iterable[str]) -> dict[str, list[str]]:
     return targets
 
 
+@lru_cache(maxsize=4096)
+def _pattern_regex(token: str) -> re.Pattern[str]:
+    # Word-boundary matching: bare substring matching mis-tagged e.g.
+    # "Highridge Medical" as ge_healthcare ("...ridGE MEDICAL") and
+    # "Gebdi Dental" / "One Lambda" as bd. A token must not be embedded
+    # inside a longer alphanumeric run.
+    return re.compile(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])")
+
+
 def matched_target(company_name: str, patterns_by_target: dict[str, list[str]]) -> str | None:
     company = company_name.lower()
     for key, patterns in patterns_by_target.items():
-        if any(pattern in company for pattern in patterns):
+        if any(_pattern_regex(pattern).search(company) for pattern in patterns):
             return key
     return None
 
@@ -182,6 +193,50 @@ def import_devices(args: argparse.Namespace) -> Counter:
     return counts
 
 
+def prune_stale(sqlite_path: Path, dry_run: bool = False) -> Counter:
+    """Re-evaluate every stored device against the CURRENT target patterns.
+
+    Deletes rows that no longer match any target (imported by an earlier,
+    looser pattern — e.g. substring false positives) and retags rows whose
+    matching target changed. Keeps devices_fts in sync for deletions.
+    """
+    patterns_by_target = normalized_patterns([str(t["key"]) for t in TOP_DEVICE_TARGETS])
+    conn = sqlite3.connect(sqlite_path)
+    counts: Counter = Counter()
+    has_fts = conn.execute(
+        "select 1 from sqlite_master where type='table' and name='devices_fts'"
+    ).fetchone() is not None
+
+    rows = conn.execute("select rowid, id, company_name, raw_json from devices")
+    to_delete: list[tuple[int, str]] = []
+    to_retag: list[tuple[str, str, str]] = []  # (new_raw_json, new_target, id)
+    for rowid, device_id, company_name, raw_json in rows:
+        counts["scanned"] += 1
+        new_target = matched_target(company_name or "", patterns_by_target)
+        if new_target is None:
+            to_delete.append((rowid, device_id))
+            continue
+        raw = json.loads(raw_json)
+        if raw.get("_chatifu_target") != new_target:
+            raw["_chatifu_target"] = new_target
+            to_retag.append((json.dumps(raw, ensure_ascii=False), new_target, device_id))
+
+    counts["deleted"] = len(to_delete)
+    counts["retagged"] = len(to_retag)
+    if dry_run:
+        conn.close()
+        return counts
+
+    with conn:
+        for rowid, device_id in to_delete:
+            conn.execute("delete from devices where rowid=?", (rowid,))
+            if has_fts:
+                conn.execute("delete from devices_fts where rowid=?", (rowid,))
+        conn.executemany("update devices set raw_json=? where id=?", [(r, i) for r, _, i in to_retag])
+    conn.close()
+    return counts
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import FDA AccessGUDID device targets into the local ChatIFU SQLite queue.")
     parser.add_argument("--source", type=Path, required=True, help="AccessGUDID device.txt or full-release zip.")
@@ -191,6 +246,11 @@ def main() -> None:
     parser.add_argument("--limit", type=int, help="Stop after this many matched rows.")
     parser.add_argument("--batch-size", type=int, default=5000)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--prune-stale",
+        action="store_true",
+        help="After import, delete/retag stored devices that no longer match the current target patterns.",
+    )
     args = parser.parse_args()
 
     if not args.source.exists():
@@ -198,6 +258,9 @@ def main() -> None:
     counts = import_devices(args)
     json.dump(counts, sys.stdout, indent=2)
     print()
+    if args.prune_stale:
+        prune_counts = prune_stale(args.sqlite, dry_run=args.dry_run)
+        print("[prune]", json.dumps(prune_counts))
 
 
 if __name__ == "__main__":

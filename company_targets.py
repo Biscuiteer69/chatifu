@@ -7,7 +7,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "medtronic",
         "name": "Medtronic",
         "adapter": "planned",
-        "company_patterns": ["%medtronic%"],
+        "company_patterns": ["%medtronic%", "%covidien%"],
         "revenue": "~$33B",
     },
     {
@@ -24,6 +24,8 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
             "%biosense webster%",
             "%cerenovus%",
             "%mentor worldwide%",
+            "%mentor texas%",
+            "%abiomed%",
             "%acclarent%",
         ],
         "revenue": "~$32B",
@@ -33,7 +35,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "stryker",
         "name": "Stryker",
         "adapter": "stryker",
-        "company_patterns": ["%stryker%"],
+        "company_patterns": ["%stryker%", "%wright medical%"],
         "revenue": "~$22-23B",
     },
     {
@@ -49,7 +51,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "abbott",
         "name": "Abbott Laboratories",
         "adapter": "planned",
-        "company_patterns": ["%abbott%"],
+        "company_patterns": ["%abbott%", "%st. jude medical%", "%st jude medical%"],
         "revenue": "~$19-28B",
     },
     {
@@ -65,7 +67,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "ge_healthcare",
         "name": "GE HealthCare",
         "adapter": "planned",
-        "company_patterns": ["%ge healthcare%", "%ge medical%"],
+        "company_patterns": ["%ge healthcare%", "%ge medical%", "%datex-ohmeda%"],
         "revenue": "~$19-20B",
     },
     {
@@ -73,7 +75,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "philips",
         "name": "Philips",
         "adapter": "planned",
-        "company_patterns": ["%philips%"],
+        "company_patterns": ["%philips%", "%respironics%"],
         "revenue": "~$19-20B",
     },
     {
@@ -89,7 +91,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "bd",
         "name": "BD (Becton Dickinson)",
         "adapter": "planned",
-        "company_patterns": ["%becton%", "%bd %", "%b d%"],
+        "company_patterns": ["%becton%", "%bd%", "%bard%", "%carefusion%"],
         "revenue": "~$15-16B",
     },
     {
@@ -105,7 +107,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "baxter",
         "name": "Baxter",
         "adapter": "planned",
-        "company_patterns": ["%baxter%"],
+        "company_patterns": ["%baxter%", "%hill-rom%", "%hillrom%", "%welch allyn%"],
         "revenue": "~$10-12B",
     },
     {
@@ -137,7 +139,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "olympus",
         "name": "Olympus",
         "adapter": "planned",
-        "company_patterns": ["%olympus%"],
+        "company_patterns": ["%olympus%", "%gyrus%"],
         "revenue": "~$6-7B",
     },
     {
@@ -145,7 +147,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "b_braun",
         "name": "B. Braun",
         "adapter": "planned",
-        "company_patterns": ["%b braun%", "%b. braun%", "%b.braun%"],
+        "company_patterns": ["%b braun%", "%b. braun%", "%b.braun%", "%aesculap%"],
         "revenue": "~$9B",
     },
     {
@@ -185,7 +187,7 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "terumo",
         "name": "Terumo",
         "adapter": "planned",
-        "company_patterns": ["%terumo%"],
+        "company_patterns": ["%terumo%", "%microvention%"],
         "revenue": "~$6-7B",
     },
     {
