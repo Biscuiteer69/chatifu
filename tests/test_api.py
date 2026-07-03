@@ -157,5 +157,42 @@ class PdfProxy(unittest.TestCase):
         self.assertTrue(resp.content.startswith(b"%PDF"))
 
 
+class RateLimitAndLogging(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = build_client()
+        self.headers = {"X-Beta-Code": "beta-good"}
+        api._rl_hits.clear()
+
+    @patch("api._resolve_ifu_url", return_value="https://e-ifu.com/doc/123")
+    def test_answer_rate_limited(self, _resolve) -> None:
+        api.RATE_LIMITS["/answer"] = 2
+        try:
+            with patch.object(api, "_get_answerer") as get_ans:
+                get_ans.return_value.answer.return_value = make_answer()
+                # vary question so the answer cache doesn't short-circuit
+                codes = [
+                    self.client.post(
+                        "/answer",
+                        json={"catalog": "17-0186", "question": f"q number {i}?"},
+                        headers=self.headers,
+                    ).status_code
+                    for i in range(4)
+                ]
+            self.assertEqual(codes[:2], [200, 200])
+            self.assertIn(429, codes[2:])
+        finally:
+            api.RATE_LIMITS["/answer"] = 10
+
+    def test_requests_are_logged(self) -> None:
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            api.REQUEST_LOG = Path(d) / "requests.jsonl"
+            self.client.get("/device/search", params={"q": "x"}, headers=self.headers)
+            self.assertTrue(api.REQUEST_LOG.exists())
+            lines = api.REQUEST_LOG.read_text().strip().splitlines()
+            self.assertTrue(any('"path": "/device/search"' in ln for ln in lines))
+
+
 if __name__ == "__main__":
     unittest.main()

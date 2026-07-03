@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import threading
-from collections import OrderedDict
+import time
+from collections import OrderedDict, deque
 from hmac import compare_digest
+from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ollama_client import embed, generate, ollama_health
@@ -49,6 +53,88 @@ BETA_CODES = {
 # Flip CHATIFU_CACHE_PDFS=1 to persist a disk cache (pending legal sign-off).
 CACHE_PDFS = os.environ.get("CHATIFU_CACHE_PDFS", "0") == "1"
 ANSWER_CACHE_MAX = int(os.environ.get("CHATIFU_ANSWER_CACHE_MAX", "256"))
+
+# Observability: append one JSON line per request. Gitignored (logs/).
+REQUEST_LOG = Path(os.environ.get("CHATIFU_REQUEST_LOG", "logs/requests.jsonl"))
+# In-app rate limits (secondary to Cloudflare). Behind the tunnel the socket
+# peer is 127.0.0.1, so we key on CF-Connecting-IP. requests per 60s window.
+RATE_LIMITS = {"/answer": int(os.environ.get("CHATIFU_RL_ANSWER", "10")),
+               "/ask": int(os.environ.get("CHATIFU_RL_ASK", "5"))}
+_rl_hits: dict[str, deque] = {}
+_rl_lock = threading.Lock()
+
+
+def _client_ip(request: Request) -> str:
+    return (request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else "unknown"))
+
+
+def _rate_limited(path: str, client: str) -> bool:
+    limit = RATE_LIMITS.get(path)
+    if not limit:
+        return False
+    now = time.monotonic()
+    key = f"{path}|{client}"
+    with _rl_lock:
+        dq = _rl_hits.setdefault(key, deque())
+        while dq and now - dq[0] > 60.0:
+            dq.popleft()
+        if len(dq) >= limit:
+            return True
+        dq.append(now)
+        return False
+
+
+def _log_request(record: dict[str, Any]) -> None:
+    try:
+        REQUEST_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with REQUEST_LOG.open("a") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception:
+        pass  # logging must never break a request
+
+
+def _request_stats(window_s: int = 86400) -> dict[str, Any]:
+    """Summarize the last window of the request log for /stats."""
+    if not REQUEST_LOG.exists():
+        return {"window_hours": window_s // 3600, "requests": 0}
+    cutoff = time.time() - window_s
+    by_path: dict[str, int] = {}
+    statuses: dict[str, int] = {}
+    latencies: list[float] = []
+    total = 0
+    try:
+        with REQUEST_LOG.open() as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("ts", 0) < cutoff:
+                    continue
+                total += 1
+                by_path[rec.get("path", "?")] = by_path.get(rec.get("path", "?"), 0) + 1
+                sc = str(rec.get("status", "?"))
+                statuses[sc] = statuses.get(sc, 0) + 1
+                if isinstance(rec.get("latency_ms"), (int, float)):
+                    latencies.append(rec["latency_ms"])
+    except Exception:
+        pass
+    latencies.sort()
+
+    def pct(p: float) -> float:
+        if not latencies:
+            return 0.0
+        return round(latencies[min(len(latencies) - 1, int(len(latencies) * p))], 1)
+
+    return {
+        "window_hours": window_s // 3600,
+        "requests": total,
+        "by_path": by_path,
+        "by_status": statuses,
+        "latency_ms": {"p50": pct(0.5), "p95": pct(0.95)},
+    }
 
 
 # --- Lazy singletons for the highlight stack -------------------------------
@@ -127,6 +213,29 @@ def create_app() -> FastAPI:
         allow_headers=["authorization", "content-type", "x-api-key", "x-beta-code"],
     )
 
+    @app.middleware("http")
+    async def observe_and_limit(request: Request, call_next):
+        path = request.url.path
+        client = _client_ip(request)
+        if _rate_limited(path, client):
+            return JSONResponse({"detail": "Rate limit exceeded. Slow down."}, status_code=429)
+        start = time.perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            if path not in ("/healthz",):  # skip health-check noise
+                _log_request({
+                    "ts": time.time(),
+                    "method": request.method,
+                    "path": path,
+                    "status": status,
+                    "latency_ms": round((time.perf_counter() - start) * 1000, 1),
+                    "client": hashlib.sha256(client.encode()).hexdigest()[:12],
+                })
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok", "service": "chatifu-vault-api"}
@@ -140,7 +249,7 @@ def create_app() -> FastAPI:
 
     @app.get("/stats")
     def stats(_: None = Depends(require_api_token)) -> dict[str, Any]:
-        return vault_stats()
+        return {"vault": vault_stats(), "traffic_24h": _request_stats()}
 
     # ------------------------------------------------------------------
     # Beta product endpoints (in-document highlight) — invite-code gated
