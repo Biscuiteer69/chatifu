@@ -1,0 +1,9 @@
+{
+  "_comment": "Pre-deploy regression gate: known device -> question -> expected IFU location. Captured live 2026-07-02 across the 4 beta-relevant manufacturers. If extraction drifts, these break. expect_page must appear among hit pages; expect_section is a case-insensitive substring of some hit's section.",
+  "cases": [
+    {"catalog": "SGC0701",    "question": "contraindications",    "manufacturer": "Abbott",  "expect_page": 2,  "expect_section": "CONTRAINDICATIONS"},
+    {"catalog": "CB11LT",     "question": "instructions for use", "manufacturer": "Stryker", "expect_page": 4,  "min_hits": 1},
+    {"catalog": "0030-4864",  "question": "warnings",             "manufacturer": "J&J",     "expect_page": 17, "expect_section": "WARNINGS"},
+    {"catalog": "9600TFX20A", "question": "indications",          "manufacturer": "Edwards", "expect_page": 2,  "expect_section": "INTENDED USE"}
+  ]
+}
