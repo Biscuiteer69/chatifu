@@ -20,6 +20,7 @@ from resolvers.eifu_resolver import (
     EifuResolver,
     ensure_ifu_links_table,
     detect_gate_page,
+    match_confidence,
 )
 
 
@@ -253,6 +254,38 @@ class EifuResolverTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], CANDIDATE_STATUS)
         self.assertNotEqual(rows[0]["status"], FOUND_STATUS)
+
+    def test_catalog_embedded_in_artwork_number_is_not_exact(self) -> None:
+        # A001931 is an artwork number that merely contains catalog 01931;
+        # promoting it linked GYNECARE 01931 to a HARMONIC shears document.
+        self.assertEqual(
+            match_confidence(
+                "HARMONIC™ 700, 5 mm Diameter Shears",
+                "01931",
+                source_file_name="A001931_RevC_HAR723_736_745_eIFU_Links_Clean.pdf",
+            ),
+            "search_result",
+        )
+
+    def test_catalog_as_whole_file_name_token_is_exact(self) -> None:
+        self.assertEqual(
+            match_confidence(
+                "ELITA™ Femtosecond Laser System FLAP Operator Manual",
+                "0155-1910",
+                source_file_name="0155-1910 Rev B_US EN_Elita.pdf",
+            ),
+            "exact_catalog",
+        )
+
+    def test_short_catalog_never_matches_file_name(self) -> None:
+        self.assertEqual(
+            match_confidence(
+                "Some reload document",
+                "736",
+                source_file_name="A001931_RevC_HAR723_736_745_eIFU_Links_Clean.pdf",
+            ),
+            "search_result",
+        )
 
     def test_session_initialization_posts_hcp_language_and_terms_before_search(self) -> None:
         resolver = EifuResolver(db_path=self.db_path, delay_sec=0)

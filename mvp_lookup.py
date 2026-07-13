@@ -313,10 +313,20 @@ def get_device(
 def get_best_ifu_url(
     catalog_number: str,
     db_path: str | Path = SQLITE_PATH,
+    include_candidates: bool = False,
 ) -> str | None:
-    """Return the highest-priority cached document_url for a catalog, or None."""
+    """Return the highest-priority cached document_url for a catalog, or None.
+
+    By default only verified matches (status ``found``) are returned: a
+    ``candidate_broad`` row can be an unrelated document that happened to
+    appear in a manufacturer portal search, and serving it as *the* IFU
+    would show a user the wrong device's instructions. Pass
+    ``include_candidates=True`` to fall back to broad candidates.
+    """
     rows = fetch_ifu_rows(catalog_number, db_path)
     doc_rows = [r for r in rows if r.get("document_url")]
+    if not include_candidates:
+        doc_rows = [r for r in doc_rows if r.get("status") == "found"]
     if not doc_rows:
         return None
     best = min(doc_rows, key=row_priority)

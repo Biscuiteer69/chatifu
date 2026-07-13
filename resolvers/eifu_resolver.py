@@ -398,7 +398,12 @@ class EifuResolver:
                     "document_title": title,
                     "language": document.get("language") or "en",
                     "revision": document.get("revision"),
-                    "match_confidence": match_confidence(title, catalog_number, model_number),
+                    "match_confidence": match_confidence(
+                        title,
+                        catalog_number,
+                        model_number,
+                        source_file_name=document.get("source_file_name"),
+                    ),
                     "source_file_name": document.get("source_file_name"),
                 }
             )
@@ -838,16 +843,58 @@ def update_outcome_row(
     )
 
 
+def _normalize_identifier(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _file_name_tokens(file_name: str) -> set[str]:
+    """Split an e-IFU file name into identifier tokens.
+
+    Splits on separators that delimit identifiers (space, underscore, etc.)
+    but keeps dashes inside tokens, since catalog numbers like 0155-1910
+    appear dash-joined in file names.
+    """
+    stem = re.sub(r"\.[a-z0-9]{2,4}$", "", file_name.lower())
+    tokens: set[str] = set()
+    for token in re.split(r"[\s_,;()\[\]]+", stem):
+        token = token.strip(".-")
+        if token:
+            tokens.add(token)
+            tokens.add(_normalize_identifier(token))
+    return tokens
+
+
+def _identifier_in_file_name(identifier: str, file_name: str | None) -> bool:
+    # Substring matching against file names is unsafe: artwork numbers like
+    # A001931 contain shorter catalog numbers (01931) by coincidence, which
+    # would link a device to the wrong document. Require whole-token equality
+    # and a minimum length so short numeric catalogs can't collide.
+    if not file_name:
+        return False
+    normalized = _normalize_identifier(identifier)
+    if len(normalized) < 5:
+        return False
+    tokens = _file_name_tokens(file_name)
+    return identifier.lower() in tokens or normalized in tokens
+
+
 def match_confidence(
     title: str,
     catalog_number: str,
     model_number: str | None = None,
+    source_file_name: str | None = None,
 ) -> str:
     title_lower = title.lower()
-    if catalog_number and catalog_number.lower() in title_lower:
-        return "exact_catalog"
-    if model_number and model_number.lower() in title_lower:
-        return "model_match"
+    if catalog_number:
+        if catalog_number.lower() in title_lower or _identifier_in_file_name(
+            catalog_number, source_file_name
+        ):
+            return "exact_catalog"
+    if model_number:
+        if model_number.lower() in title_lower or _identifier_in_file_name(
+            model_number, source_file_name
+        ):
+            return "model_match"
     return "search_result"
 
 
@@ -965,22 +1012,30 @@ def load_jnj_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqli
     try:
         return conn.execute(
             """
-            select rowid, company_name, brand_name, model_number, catalog_number, raw_json
-            from devices
-            where catalog_number is not null
-              and trim(catalog_number) != ''
+            select d.rowid, d.company_name, d.brand_name, d.model_number, d.catalog_number, d.raw_json
+            from devices d
+            where d.catalog_number is not null
+              and trim(d.catalog_number) != ''
               and (
-                lower(company_name) like '%johnson%'
-                or lower(company_name) like '%depuy%'
-                or lower(company_name) like '%ethicon%'
-                or lower(company_name) like '%synthes%'
-                or lower(company_name) like '%cerenovus%'
-                or lower(company_name) like '%biosense%'
-                or lower(company_name) like '%acclarent%'
+                lower(d.company_name) like '%johnson%'
+                or lower(d.company_name) like '%depuy%'
+                or lower(d.company_name) like '%ethicon%'
+                or lower(d.company_name) like '%synthes%'
+                or lower(d.company_name) like '%cerenovus%'
+                or lower(d.company_name) like '%biosense%'
+                or lower(d.company_name) like '%acclarent%'
+                or lower(d.company_name) like '%mentor%'
+              )
+              and not exists (
+                select 1 from ifu_links l
+                where l.catalog_number = d.catalog_number
+                  and l.status in ('found', 'candidate_broad', 'not_found')
               )
             order by
-              case when company_name = 'JOHNSON & JOHNSON SURGICAL VISION, INC.' then 0 else 1 end,
-              catalog_number
+              -- e-ifu.com hosts Ethicon/DePuy/Biosense/Mentor families;
+              -- Surgical Vision is mostly absent, so try it last.
+              case when lower(d.company_name) like '%surgical vision%' then 1 else 0 end,
+              d.catalog_number
             limit ?
             """,
             (limit,),
