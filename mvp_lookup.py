@@ -21,9 +21,14 @@ ERROR_STATUSES = {
 STATUS_PRIORITY = {
     ("found", "exact_catalog"): 0,
     ("found", "model_match"): 1,
-    ("candidate_broad", "search_result"): 2,
-    ("not_found", None): 3,
-    ("not_found", ""): 3,
+    # The document title names the device's GUDID brand (verify_ifu_candidates.py).
+    # e-ifu.com substring-matches catalogs against document metadata, so a
+    # coincidental hit can carry the catalog in its file name while a genuine
+    # one carries it nowhere at all; brand agreement is what separates them.
+    ("found", "brand_match"): 2,
+    ("candidate_broad", "search_result"): 3,
+    ("not_found", None): 4,
+    ("not_found", ""): 4,
 }
 DEFAULT_WARNING = (
     "ChatIFU searches manufacturer IFU sources. "
