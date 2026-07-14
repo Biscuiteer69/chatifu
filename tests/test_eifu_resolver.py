@@ -516,12 +516,14 @@ if __name__ == "__main__":
 
 
 class SearchTermFallbackTests(unittest.TestCase):
-    def test_model_number_is_tried_after_catalog(self) -> None:
+    def test_model_number_is_tried_for_a_synthes_catalog(self) -> None:
         # GUDID stores Synthes catalog 02007026, but e-ifu.com only knows the
         # dotted model 02.007.026 — searching the catalog alone returns nothing.
+        # The dotted model leads (see DottedModelOrderTests): the catalog never
+        # hits for these devices, so trying it first only burns a request.
         self.assertEqual(
             search_terms_for("02007026", "02.007.026"),
-            ["02007026", "02.007.026"],
+            ["02.007.026", "02007026"],
         )
 
     def test_identical_catalog_and_model_is_searched_once(self) -> None:
@@ -547,3 +549,16 @@ class PortalModelMatchTests(unittest.TestCase):
         # An already-verified tier is not downgraded.
         self.assertEqual(docs[1]["match_confidence"], "exact_catalog")
         self.assertEqual(classify_document_status("model_portal_match"), "found")
+
+
+class DottedModelOrderTests(unittest.TestCase):
+    def test_dotted_model_is_searched_before_the_catalog(self) -> None:
+        # The catalog form never hits for these devices, so searching it first
+        # would waste a request and a rate-limit delay on each of ~24k devices.
+        self.assertEqual(
+            search_terms_for("02007026", "02.007.026"),
+            ["02.007.026", "02007026"],
+        )
+
+    def test_undotted_model_keeps_catalog_first(self) -> None:
+        self.assertEqual(search_terms_for("GIB00U0340", "GIB00"), ["GIB00U0340", "GIB00"])

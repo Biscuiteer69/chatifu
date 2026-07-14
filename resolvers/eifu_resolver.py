@@ -38,6 +38,8 @@ MIN_BRAND_LEN = 5
 # implausible. Synthes models (02.007.026 -> 8 alphanumerics) clear this; the
 # 5-digit GYNECARE catalogs that produced the false matches do not.
 MIN_PORTAL_TERM_LEN = 6
+# Synthes/DePuy model numbers: 02.007.026, 04.535.328S.
+_DOTTED_MODEL_RE = re.compile(r"^\d+\.\d+\.\d+")
 NOT_FOUND_STATUS = "not_found"
 SESSION_GATE_STATUS = "session_gate"
 AUTH_FAILED_STATUS = "auth_failed"
@@ -934,9 +936,14 @@ def search_terms_for(catalog_number: str, model_number: str | None) -> list[str]
     one of those devices looked like a genuine miss when it was a punctuation
     mismatch. Fall back to the model number when the catalog finds nothing.
     """
+    catalog = (catalog_number or "").strip()
+    model = (model_number or "").strip()
+    # A dotted model (02.007.026) is the form e-ifu.com indexes, and its catalog
+    # counterpart (02007026) never hits — searching the catalog first would burn
+    # a request and a rate-limit delay on every one of ~24k such devices.
+    order = (model, catalog) if _DOTTED_MODEL_RE.match(model) else (catalog, model)
     terms: list[str] = []
-    for candidate in (catalog_number, model_number):
-        term = (candidate or "").strip()
+    for term in order:
         if term and term not in terms:
             terms.append(term)
     return terms
@@ -1127,7 +1134,18 @@ def duplicate_counts(conn: sqlite3.Connection, grouped_count_sql: str) -> tuple[
     return len(rows), sum(int(row[0]) for row in rows)
 
 
-def load_jnj_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqlite3.Row]:
+def load_jnj_devices(
+    limit: int,
+    db_path: str | Path = SQLITE_PATH,
+    dotted_first: bool = False,
+) -> list[sqlite3.Row]:
+    """Unresolved J&J-family devices to attempt, best prospects first.
+
+    dotted_first prioritises devices whose model number is dotted (02.007.026).
+    e-ifu.com indexes that form, not GUDID's catalog number, so those devices
+    resolve at close to 100% while the rest mostly return not_found — a sweep
+    that ignores the distinction spends most of its time on misses.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -1153,13 +1171,16 @@ def load_jnj_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqli
                   and l.status in ('found', 'candidate_broad', 'not_found')
               )
             order by
+              -- Devices whose model is dotted (02.007.026) resolve at ~100%;
+              -- e-ifu.com indexes that form, not the GUDID catalog number.
+              case when ? = 1 and d.model_number like '%.%.%' then 0 else 1 end,
               -- e-ifu.com hosts Ethicon/DePuy/Biosense/Mentor families;
               -- Surgical Vision is mostly absent, so try it last.
               case when lower(d.company_name) like '%surgical vision%' then 1 else 0 end,
               d.catalog_number
             limit ?
             """,
-            (limit,),
+            (1 if dotted_first else 0, limit),
         ).fetchall()
     finally:
         conn.close()
@@ -1176,12 +1197,17 @@ def main() -> None:
     parser.add_argument("catalog_number", nargs="?", help="Catalog number to resolve.")
     parser.add_argument("--model-number", help="Optional model number for confidence scoring.")
     parser.add_argument("--test-jnj", type=int, help="Resolve N real J&J-family devices from the vault.")
+    parser.add_argument(
+        "--dotted-first",
+        action="store_true",
+        help="Attempt dotted-model devices (02.007.026) first; they resolve at ~100%%.",
+    )
     parser.add_argument("--no-db", action="store_true", help="Do not log results to ifu_links.")
     args = parser.parse_args()
 
     resolver = EifuResolver()
     if args.test_jnj:
-        rows = load_jnj_devices(args.test_jnj)
+        rows = load_jnj_devices(args.test_jnj, dotted_first=args.dotted_first)
         print(f"Testing {len(rows)} J&J-family devices")
         for row in rows:
             raw_json = json.loads(row["raw_json"]) if row["raw_json"] else {}
