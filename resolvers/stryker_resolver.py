@@ -48,7 +48,14 @@ from resolvers.eifu_resolver import (
 
 BASE_URL = "https://api-public.qarad.eifu.online/api/v1"
 MANUFACTURER_FAMILY = "stryker"
-DEFAULT_DELAY_SEC = 0.5
+# The API sits behind a CloudFront WAF that blocks the whole client IP once it
+# decides you are hammering it — and the block is not per-tenant, it takes out
+# every manufacturer on the platform. A 0.5s delay over a few thousand devices
+# was enough to trigger it. Stay slow.
+DEFAULT_DELAY_SEC = 2.0
+# Consecutive WAF blocks before a batch gives up rather than digging in deeper.
+MAX_CONSECUTIVE_BLOCKS = 3
+BLOCK_BACKOFF_SEC = 60.0
 HEADERS = {
     "accept": "*/*",
     "accept-language": "en",
@@ -59,6 +66,10 @@ HEADERS = {
 }
 # Product attributes whose value carries the catalog/REF number.
 REF_ATTRIBUTE_NAMES = ("ref or catalog number", "catalog number", "ref")
+
+
+class WafBlocked(Exception):
+    """The CDN blocked this client IP, not just this request."""
 
 
 def normalize_ref(value: str) -> str:
@@ -142,6 +153,7 @@ class StrykerResolver:
         self.country = country
         self._last_request_at = 0.0
         self._business_units: dict[str, int] | None = None
+        self._product_types: dict[int, dict[str, int]] = {}
 
     # -- HTTP ---------------------------------------------------------------
 
@@ -153,8 +165,17 @@ class StrykerResolver:
 
         data = json.dumps(payload).encode() if payload is not None else None
         request = urllib.request.Request(url, data=data, headers=HEADERS)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            # CloudFront blocks the client IP (403/429) rather than the request,
+            # so every subsequent call fails too. Surface it as its own error so
+            # a batch can stop instead of burning through the work list marking
+            # thousands of devices as failures.
+            if exc.code in (403, 429):
+                raise WafBlocked(f"WAF blocked the client (HTTP {exc.code})") from exc
+            raise
 
     def business_units(self) -> dict[str, int]:
         if self._business_units is None:
@@ -177,14 +198,25 @@ class StrykerResolver:
         )
         return list(data.get("items") or [])
 
+    def product_types(self, bu_id: int) -> dict[str, int]:
+        """slug -> id for a business unit, cached.
+
+        This was re-fetched for every device, which is a wasted API call each
+        time against a WAF-protected endpoint.
+        """
+        if bu_id not in self._product_types:
+            data = self._request(f"{BASE_URL}/business-units/{bu_id}/product-types")
+            self._product_types[bu_id] = {
+                str(pt["slug"]): int(pt["id"]) for pt in data.get("items", [])
+            }
+        return self._product_types[bu_id]
+
     def _product_files(self, item: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
         """IFU files the API lists for a product, plus the product name."""
         bu_id = self.business_units().get(str(item.get("businessUnit")))
         if bu_id is None:
             return [], None
-        product_types = self._request(f"{BASE_URL}/business-units/{bu_id}/product-types")
-        pt_map = {str(pt["slug"]): int(pt["id"]) for pt in product_types.get("items", [])}
-        pt_id = pt_map.get(str(item.get("productType")))
+        pt_id = self.product_types(bu_id).get(str(item.get("productType")))
         if pt_id is None:
             return [], None
 
@@ -272,6 +304,10 @@ class StrykerResolver:
             for item in matches:
                 documents.extend(self.ifu_documents(item))
             status = FOUND_STATUS if documents else NOT_FOUND_STATUS
+        except WafBlocked:
+            # Not this device's fault, and writing a failure row for it would
+            # mislabel a device we never actually got to check.
+            raise
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
             status, error_type = classify_error(exc)
         except Exception as exc:  # noqa: BLE001
@@ -412,14 +448,27 @@ def main() -> None:
         rows = load_stryker_devices(args.batch)
         print(f"Resolving {len(rows)} Stryker devices")
         found = 0
+        blocks = 0
         for index, row in enumerate(rows, 1):
             raw_json = json.loads(row["raw_json"]) if row["raw_json"] else {}
-            documents = resolver.resolve(
-                catalog_number=row["catalog_number"],
-                model_number=row["model_number"],
-                device_rowid=row["rowid"],
-                primary_di=raw_json.get("PrimaryDI"),
-            )
+            try:
+                documents = resolver.resolve(
+                    catalog_number=row["catalog_number"],
+                    model_number=row["model_number"],
+                    device_rowid=row["rowid"],
+                    primary_di=raw_json.get("PrimaryDI"),
+                )
+            except WafBlocked as exc:
+                blocks += 1
+                if blocks >= MAX_CONSECUTIVE_BLOCKS:
+                    print(f"blocked {blocks}x — stopping at {index}/{len(rows)}. "
+                          f"Resolved {found}. Retry later; blocked devices were not marked.")
+                    return
+                wait = BLOCK_BACKOFF_SEC * blocks
+                print(f"[{index}/{len(rows)}] {exc} — backing off {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            blocks = 0
             if documents:
                 found += 1
             if index % 25 == 0 or documents:
