@@ -209,6 +209,11 @@ def ensure_ifu_for_catalog(
 
         EdwardsResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
         return
+    if "stryker" in company or "wright medical" in company:
+        from resolvers.stryker_resolver import StrykerResolver
+
+        StrykerResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
+        return
     EifuResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
 
 
@@ -348,7 +353,52 @@ def get_best_ifu_url(
     if not doc_rows:
         return None
     best = min(doc_rows, key=row_priority)
-    return best.get("document_url")
+    return refresh_document_url(best, db_path)
+
+
+def needs_presigned_url(url: str | None) -> bool:
+    """True for documents whose URL must be signed before it can be fetched.
+
+    Stryker serves IFUs from S3 behind a presigned link that expires after 6h,
+    so we store the bare object path and mint a signature at serve time. A
+    stored full URL (from an older run) is also treated as needing a refresh.
+    """
+    text = str(url or "")
+    return "amazonaws.com" in text
+
+
+def refresh_document_url(row: dict[str, Any], db_path: str | Path = SQLITE_PATH) -> str | None:
+    """Return a currently-valid document URL for a resolved row.
+
+    Non-expiring URLs are returned as-is. For an expiring one, ask the
+    manufacturer's API for a fresh link using the stable file name we stored,
+    and persist it so concurrent readers benefit.
+    """
+    url = row.get("document_url")
+    if not needs_presigned_url(url):
+        return url
+    catalog = str(row.get("catalog_number") or "")
+    source_file_name = row.get("source_file_name")
+    if not catalog or not source_file_name:
+        return url
+
+    from resolvers.stryker_resolver import StrykerResolver
+
+    fresh = StrykerResolver(db_path=db_path).fresh_document_url(catalog, str(source_file_name))
+    if not fresh:
+        return url
+    conn = db_connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE ifu_links SET document_url = ? WHERE catalog_number = ? AND source_file_name = ?",
+                (fresh, catalog, source_file_name),
+            )
+    except sqlite3.Error:
+        pass
+    finally:
+        conn.close()
+    return fresh
 
 
 def get_servable_ifu_documents(

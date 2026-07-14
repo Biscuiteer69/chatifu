@@ -30,6 +30,7 @@ from mvp_lookup import (
     get_best_ifu_url,
     get_device,
     get_servable_ifu_documents,
+    refresh_document_url,
     search_devices,
 )
 
@@ -287,16 +288,26 @@ def create_app() -> FastAPI:
             # Only stream a document that this catalog actually resolves to.
             # Fetching an arbitrary caller-supplied URL would make this endpoint
             # an open proxy into the DGX's network.
-            allowed = {
-                str(doc["document_url"])
-                for doc in get_servable_ifu_documents(catalog)
-            }
-            if document_url not in allowed:
+            #
+            # Compare the stable part of the URL (scheme/host/path) and ignore
+            # the query: Stryker's links are presigned and their signature
+            # rotates every 6h, so a full-string match would reject a link we
+            # ourselves minted an hour ago — including one held in the answer
+            # cache. The document is then re-minted below rather than served
+            # from the caller's (possibly expired) signature.
+            match = next(
+                (
+                    doc for doc in get_servable_ifu_documents(catalog)
+                    if _stable_url_key(str(doc["document_url"])) == _stable_url_key(document_url)
+                ),
+                None,
+            )
+            if match is None:
                 raise HTTPException(
                     status_code=400,
                     detail="document_url is not an official IFU for this device.",
                 )
-            doc_url = document_url
+            doc_url = refresh_document_url(match) or str(match["document_url"])
         else:
             doc_url = _resolve_ifu_url(catalog)
         answerer = _get_answerer()
@@ -423,6 +434,16 @@ IFU context:
 MAX_DOCS_PER_ANSWER = int(os.environ.get("CHATIFU_MAX_DOCS_PER_ANSWER", "5"))
 
 
+def _stable_url_key(url: str) -> tuple[str, str, str]:
+    """The part of a URL that identifies the document, ignoring the query.
+
+    Presigned links carry a rotating signature, so the query string is not part
+    of a document's identity.
+    """
+    parts = urllib.parse.urlsplit(url)
+    return (parts.scheme, parts.netloc, parts.path)
+
+
 def _best_answer_across_documents(
     catalog: str,
     question: str,
@@ -447,7 +468,8 @@ def _best_answer_across_documents(
     considered: list[dict[str, Any]] = []
 
     for doc in docs:
-        url = str(doc["document_url"])
+        # Stryker URLs are presigned and expire after 6h; re-mint before use.
+        url = refresh_document_url(doc) or str(doc["document_url"])
         try:
             result = answerer.answer(url, question)
         except Exception as exc:  # noqa: BLE001 - one bad document must not sink the answer
@@ -462,6 +484,11 @@ def _best_answer_across_documents(
             "match_confidence": doc.get("match_confidence"),
         })
         if result.hits and score > best_score:
+            # Prefer the manufacturer's document title over one derived from the
+            # URL: Stryker's PDFs live at S3 UUID paths, so the derived title is
+            # a GUID.
+            if doc.get("document_title"):
+                result.document_title = str(doc["document_title"])
             best, best_score = result, score
 
     if best is None:
