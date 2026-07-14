@@ -93,7 +93,12 @@ class AnswerContract(unittest.TestCase):
         self.assertEqual(data["catalog"], "17-0186")
         self.assertEqual(data["document_title"], "Widget IFU")
         self.assertEqual(data["page_count"], 30)
-        self.assertEqual(data["pdf_proxy_path"], "/ifu/pdf?catalog=17-0186")
+        # The proxy path pins the document the hits came from. A device can map
+        # to several official IFUs and the answer may not come from the
+        # top-ranked one, so without this PDF.js would highlight page N of a
+        # different document.
+        self.assertTrue(data["pdf_proxy_path"].startswith("/ifu/pdf?catalog=17-0186"))
+        self.assertIn("document_url=", data["pdf_proxy_path"])
         self.assertEqual(len(data["hits"]), 1)
         hit = data["hits"][0]
         self.assertEqual({"page", "section", "snippet"}, set(hit.keys()))
@@ -196,3 +201,24 @@ class RateLimitAndLogging(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IfuPdfDocumentUrlGuard(unittest.TestCase):
+    """document_url must be one of the catalog's own official IFUs.
+
+    Streaming an arbitrary caller-supplied URL would turn this endpoint into an
+    open proxy into the DGX's network.
+    """
+
+    def setUp(self) -> None:
+        self.client = build_client()
+        self.headers = {"X-Beta-Code": "beta-good"}
+
+    def test_foreign_document_url_is_rejected(self) -> None:
+        resp = self.client.get(
+            "/ifu/pdf",
+            params={"catalog": "17-0186", "document_url": "http://169.254.169.254/latest/meta-data/"},
+            headers=self.headers,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("not an official IFU", resp.json()["detail"])

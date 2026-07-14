@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import time
+import urllib.parse
 from collections import OrderedDict, deque
 from hmac import compare_digest
 from pathlib import Path
@@ -28,6 +29,7 @@ from mvp_lookup import (
     ensure_ifu_for_catalog,
     get_best_ifu_url,
     get_device,
+    get_servable_ifu_documents,
     search_devices,
 )
 
@@ -278,9 +280,25 @@ def create_app() -> FastAPI:
     @app.get("/ifu/pdf")
     def ifu_pdf(
         catalog: str = Query(min_length=1, max_length=120),
+        document_url: str | None = Query(default=None, max_length=2000),
         _: None = Depends(require_beta_access),
     ) -> Response:
-        doc_url = _resolve_ifu_url(catalog)
+        if document_url:
+            # Only stream a document that this catalog actually resolves to.
+            # Fetching an arbitrary caller-supplied URL would make this endpoint
+            # an open proxy into the DGX's network.
+            allowed = {
+                str(doc["document_url"])
+                for doc in get_servable_ifu_documents(catalog)
+            }
+            if document_url not in allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail="document_url is not an official IFU for this device.",
+                )
+            doc_url = document_url
+        else:
+            doc_url = _resolve_ifu_url(catalog)
         answerer = _get_answerer()
         cache = _get_ifu_cache()
         try:
@@ -312,10 +330,15 @@ def create_app() -> FastAPI:
         if cached is not None:
             return {**cached, "cached": True}
 
-        doc_url = _resolve_ifu_url(catalog)
-        result: AnswerResult = _get_answerer().answer(doc_url, question)
+        result, considered = _best_answer_across_documents(catalog, question, _get_answerer())
         actual_document_url = result.document_url or result.pdf_url
-        open_full_ifu_url = result.open_full_ifu_url or actual_document_url or doc_url
+        open_full_ifu_url = result.open_full_ifu_url or actual_document_url
+        # The chosen document may not be the top-ranked one, so pin the PDF proxy
+        # to the document the hits actually came from — otherwise PDF.js would
+        # highlight page N of a different IFU.
+        pdf_proxy_path = f"/ifu/pdf?catalog={urllib.parse.quote(catalog)}"
+        if actual_document_url:
+            pdf_proxy_path += f"&document_url={urllib.parse.quote(actual_document_url, safe='')}"
         payload = {
             "catalog": catalog,
             "document_title": result.document_title,
@@ -325,9 +348,12 @@ def create_app() -> FastAPI:
                 for h in result.hits
             ],
             # Path on THIS api to stream the official PDF for PDF.js highlighting.
-            "pdf_proxy_path": f"/ifu/pdf?catalog={catalog}",
+            "pdf_proxy_path": pdf_proxy_path,
             "document_url": actual_document_url,
             "open_full_ifu_url": open_full_ifu_url,
+            # Every official document for this device, so the UI can offer a
+            # switcher and show what was searched.
+            "documents_considered": considered,
             "source_url": result.source_url,
             "timing_ms": result.timing_ms,
             "error": result.error,
@@ -389,6 +415,60 @@ IFU context:
         }
 
     return app
+
+
+# A device can map to several official IFUs. Searching all of them costs a PDF
+# fetch and parse each (cached after the first), so bound the fan-out: the list
+# is priority-ordered, and beyond a handful the tail is generic boilerplate.
+MAX_DOCS_PER_ANSWER = int(os.environ.get("CHATIFU_MAX_DOCS_PER_ANSWER", "5"))
+
+
+def _best_answer_across_documents(
+    catalog: str,
+    question: str,
+    answerer: IFUAnswerer,
+) -> tuple[AnswerResult, list[dict[str, Any]]]:
+    """Answer from the device's document that actually contains the answer.
+
+    Picking by rank alone returns an authentic document that may not address the
+    question — a Synthes implant's top-ranked document can be a generic
+    sterilization procedure while the olecranon-nail IFU sits below it. Search
+    each document and keep the strongest hit: a matching section heading
+    (SCORE_SECTION_HEADING) beats mere keyword coverage.
+    """
+    docs = get_servable_ifu_documents(catalog, limit=MAX_DOCS_PER_ANSWER)
+    if not docs:
+        # Nothing cached — fall back to the single-document path, which resolves
+        # on demand and raises 404/502 with the right detail if that fails.
+        return _get_answerer().answer(_resolve_ifu_url(catalog), question), []
+
+    best: AnswerResult | None = None
+    best_score = float("-inf")
+    considered: list[dict[str, Any]] = []
+
+    for doc in docs:
+        url = str(doc["document_url"])
+        try:
+            result = answerer.answer(url, question)
+        except Exception as exc:  # noqa: BLE001 - one bad document must not sink the answer
+            considered.append({"document_title": doc.get("document_title"), "error": str(exc)})
+            continue
+        score = max((h.score for h in result.hits), default=float("-inf"))
+        considered.append({
+            "document_title": doc.get("document_title") or result.document_title,
+            "document_url": url,
+            "hits": len(result.hits),
+            "score": None if score == float("-inf") else score,
+            "match_confidence": doc.get("match_confidence"),
+        })
+        if result.hits and score > best_score:
+            best, best_score = result, score
+
+    if best is None:
+        # Every document parsed but none contained the answer. Return the
+        # top-ranked one so the user still gets the official IFU to read.
+        return answerer.answer(str(docs[0]["document_url"]), question), considered
+    return best, considered
 
 
 def _resolve_ifu_url(catalog: str) -> str:

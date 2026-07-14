@@ -72,11 +72,22 @@ _APPENDIX_PAGES = 30
 ParsedPage = str | tuple[int, str]
 
 
+# Hit strength, used to choose between a device's documents. A device can map to
+# several official IFUs (a Synthes implant returns its device-specific IFU plus
+# three generic processing procedures), so "which document answers the question"
+# has to be decided on evidence. A document whose own section heading matches the
+# question beats one that merely contains the words.
+SCORE_SECTION_HEADING = 1000.0  # Pass 1: the document has the section asked for
+SCORE_STORAGE_PHRASE = 500.0  # Pass 2: storage phrasing found without a heading
+# Pass 3 scores by keyword coverage and stays below the tiers above.
+
+
 @dataclass
 class AnswerHit:
     page: int
     snippet: str
     section: str | None = None
+    score: float = 0.0
 
 
 @dataclass
@@ -625,7 +636,7 @@ def search_pages(
             coverage,
             occurrences,
             page_num,
-            AnswerHit(page=page_num, snippet=snippet, section=section),
+            AnswerHit(page=page_num, snippet=snippet, section=section, score=float(coverage)),
         ))
 
     scored_hits.sort(key=lambda item: (-item[0], -item[1], item[2]))
@@ -916,6 +927,7 @@ def _find_storage_passage(pages: list[ParsedPage]) -> list[AnswerHit]:
                     page=page_num,
                     snippet=snippet,
                     section="Storage Conditions",
+                    score=SCORE_STORAGE_PHRASE,
                 )
 
     return [best_hit] if best_hit else []
@@ -1015,6 +1027,7 @@ def _section_aware_search(
                                     page=page_num,
                                     snippet=snippet,
                                     section=section_name,
+                                    score=SCORE_SECTION_HEADING,
                                 ))
                             break
             pos += len(raw_line)

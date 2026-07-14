@@ -351,6 +351,34 @@ def get_best_ifu_url(
     return best.get("document_url")
 
 
+def get_servable_ifu_documents(
+    catalog_number: str,
+    db_path: str | Path = SQLITE_PATH,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Every verified document for a catalog, best-ranked first.
+
+    A device legitimately maps to several official IFUs — catalog 0030-4864 has
+    9 (patient booklets and professional-use info across four vision
+    corrections), and a Synthes implant returns its device-specific IFU plus
+    generic processing procedures. Serving whichever one ranks first would show
+    an authentic document that may not answer the question, so callers search
+    across the set and keep the document that actually contains the answer.
+    """
+    rows = [r for r in fetch_ifu_rows(catalog_number, db_path) if r.get("document_url")]
+    rows = [r for r in rows if r.get("status") == "found"]
+    rows.sort(key=row_priority)
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        url = str(row["document_url"])
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(row)
+    return deduped[:limit] if limit else deduped
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Look up ChatIFU e-IFU metadata by catalog number.")
     parser.add_argument("--catalog", required=True, help="Catalog number to look up.")
