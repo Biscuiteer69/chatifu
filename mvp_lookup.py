@@ -70,6 +70,7 @@ def fetch_ifu_rows(catalog_number: str, db_path: str | Path = SQLITE_PATH) -> li
                 last_checked_at
             FROM ifu_links
             WHERE catalog_number = ?
+            ORDER BY id
             """,
             (catalog_number,),
         ).fetchall()
@@ -79,6 +80,14 @@ def fetch_ifu_rows(catalog_number: str, db_path: str | Path = SQLITE_PATH) -> li
 
 
 def row_priority(row: dict[str, Any]) -> tuple[int, str]:
+    """Rank a row for document selection.
+
+    A device can map to several equally-ranked documents (catalog 0030-4864 has
+    9: patient booklets and professional-use info across four vision
+    corrections). Ties are broken by the caller's row order, so fetch_ifu_rows
+    orders by id — without it SQLite's row order is unspecified and the IFU we
+    serve could change between identical requests.
+    """
     status = row.get("status")
     confidence = row.get("match_confidence")
     if (status, confidence) in STATUS_PRIORITY:
