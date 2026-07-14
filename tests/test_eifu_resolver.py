@@ -19,6 +19,7 @@ from resolvers.eifu_resolver import (
     TIMEOUT_STATUS,
     EifuResolver,
     classify_document_status,
+    search_terms_for,
     ensure_ifu_links_table,
     detect_gate_page,
     match_confidence,
@@ -510,3 +511,19 @@ class EifuResolverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SearchTermFallbackTests(unittest.TestCase):
+    def test_model_number_is_tried_after_catalog(self) -> None:
+        # GUDID stores Synthes catalog 02007026, but e-ifu.com only knows the
+        # dotted model 02.007.026 — searching the catalog alone returns nothing.
+        self.assertEqual(
+            search_terms_for("02007026", "02.007.026"),
+            ["02007026", "02.007.026"],
+        )
+
+    def test_identical_catalog_and_model_is_searched_once(self) -> None:
+        self.assertEqual(search_terms_for("ABC123", "ABC123"), ["ABC123"])
+
+    def test_missing_model_leaves_catalog_only(self) -> None:
+        self.assertEqual(search_terms_for("ABC123", None), ["ABC123"])

@@ -263,19 +263,26 @@ class EifuResolver:
         if not catalog_number:
             raise ValueError("catalog_number is required.")
 
+        search_terms = search_terms_for(catalog_number, model_number)
         source_url = f"{BASE_URL}/search-document-metadata/{urllib.parse.quote(catalog_number)}"
         error_type = None
         try:
-            content = self._search(catalog_number)
-            gate = detect_gate_page(content)
-            if gate:
-                raise SessionGateFailure(f"Search returned {gate} gate page.")
-            documents = self._parse_documents(
-                content,
-                catalog_number,
-                model_number,
-                brand_names=self.brands_for_catalog(catalog_number),
-            )
+            brand_names = self.brands_for_catalog(catalog_number)
+            documents = []
+            for term in search_terms:
+                content = self._search(term)
+                gate = detect_gate_page(content)
+                if gate:
+                    raise SessionGateFailure(f"Search returned {gate} gate page.")
+                documents = self._parse_documents(
+                    content,
+                    catalog_number,
+                    model_number,
+                    brand_names=brand_names,
+                )
+                if documents:
+                    source_url = f"{BASE_URL}/search-document-metadata/{urllib.parse.quote(term)}"
+                    break
             status = FOUND_STATUS if any(
                 classify_document_status(document.get("match_confidence")) == FOUND_STATUS
                 for document in documents
@@ -902,6 +909,24 @@ def _identifier_in_file_name(identifier: str, file_name: str | None) -> bool:
         return False
     tokens = _file_name_tokens(file_name)
     return identifier.lower() in tokens or normalized in tokens
+
+
+def search_terms_for(catalog_number: str, model_number: str | None) -> list[str]:
+    """Terms to try against the portal, in order, stopping at the first that hits.
+
+    The portal indexes documents by the manufacturer's own printed identifier,
+    which is not always GUDID's catalog number. Synthes/DePuy devices are the
+    clear case: GUDID stores catalog 02007026 while e-ifu.com only knows the
+    dotted model 02.007.026 — searching the catalog returns nothing, so every
+    one of those devices looked like a genuine miss when it was a punctuation
+    mismatch. Fall back to the model number when the catalog finds nothing.
+    """
+    terms: list[str] = []
+    for candidate in (catalog_number, model_number):
+        term = (candidate or "").strip()
+        if term and term not in terms:
+            terms.append(term)
+    return terms
 
 
 def _normalize_brand_text(text: str) -> str:
