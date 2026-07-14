@@ -26,9 +26,13 @@ STATUS_PRIORITY = {
     # coincidental hit can carry the catalog in its file name while a genuine
     # one carries it nowhere at all; brand agreement is what separates them.
     ("found", "brand_match"): 2,
-    ("candidate_broad", "search_result"): 3,
-    ("not_found", None): 4,
-    ("not_found", ""): 4,
+    # The portal returned this document for the device's exact model number
+    # (the catalog found nothing). Ranked last among verified tiers: it rests on
+    # the portal's applicability metadata rather than on text we can inspect.
+    ("found", "model_portal_match"): 3,
+    ("candidate_broad", "search_result"): 4,
+    ("not_found", None): 5,
+    ("not_found", ""): 5,
 }
 DEFAULT_WARNING = (
     "ChatIFU searches manufacturer IFU sources. "

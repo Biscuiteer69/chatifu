@@ -20,6 +20,8 @@ from resolvers.eifu_resolver import (
     EifuResolver,
     classify_document_status,
     search_terms_for,
+    is_distinctive_identifier,
+    promote_portal_model_hits,
     ensure_ifu_links_table,
     detect_gate_page,
     match_confidence,
@@ -527,3 +529,21 @@ class SearchTermFallbackTests(unittest.TestCase):
 
     def test_missing_model_leaves_catalog_only(self) -> None:
         self.assertEqual(search_terms_for("ABC123", None), ["ABC123"])
+
+
+class PortalModelMatchTests(unittest.TestCase):
+    def test_distinctive_model_is_trusted(self) -> None:
+        self.assertTrue(is_distinctive_identifier("02.007.026"))
+
+    def test_short_identifier_is_not_trusted(self) -> None:
+        # Catalog 00825 is why: it collides inside LAB100825478v3_eIFU.pdf and
+        # pulled MENTOR documents for a GYNECARE device.
+        self.assertFalse(is_distinctive_identifier("00825"))
+
+    def test_portal_model_hits_become_found(self) -> None:
+        docs = [{"match_confidence": "search_result"}, {"match_confidence": "exact_catalog"}]
+        promote_portal_model_hits(docs)
+        self.assertEqual(docs[0]["match_confidence"], "model_portal_match")
+        # An already-verified tier is not downgraded.
+        self.assertEqual(docs[1]["match_confidence"], "exact_catalog")
+        self.assertEqual(classify_document_status("model_portal_match"), "found")

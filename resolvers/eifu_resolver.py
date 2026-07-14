@@ -31,6 +31,13 @@ FOUND_STATUS = "found"
 CANDIDATE_STATUS = "candidate_broad"
 # Below this length a brand name ("ECHO", "PS") collides with ordinary words.
 MIN_BRAND_LEN = 5
+# The portal substring-matches the query against document metadata, so a SHORT
+# identifier collides by chance: catalog 00825 returns MENTOR documents because
+# LAB100825478v3_eIFU.pdf contains "00825". Only trust a portal hit on an exact
+# identifier when the identifier is long enough for such a collision to be
+# implausible. Synthes models (02.007.026 -> 8 alphanumerics) clear this; the
+# 5-digit GYNECARE catalogs that produced the false matches do not.
+MIN_PORTAL_TERM_LEN = 6
 NOT_FOUND_STATUS = "not_found"
 SESSION_GATE_STATUS = "session_gate"
 AUTH_FAILED_STATUS = "auth_failed"
@@ -213,7 +220,7 @@ def detect_gate_page(content: str) -> str | None:
 
 
 def classify_document_status(match_confidence: str | None) -> str:
-    if match_confidence in {"exact_catalog", "model_match", "brand_match"}:
+    if match_confidence in {"exact_catalog", "model_match", "brand_match", "model_portal_match"}:
         return FOUND_STATUS
     return CANDIDATE_STATUS
 
@@ -282,6 +289,12 @@ class EifuResolver:
                 )
                 if documents:
                     source_url = f"{BASE_URL}/search-document-metadata/{urllib.parse.quote(term)}"
+                    # A hit from the model fallback (the catalog found nothing)
+                    # is the portal asserting applicability for that exact
+                    # model — trust it, but only if the identifier is long
+                    # enough not to collide by chance inside a file name.
+                    if term != catalog_number and is_distinctive_identifier(term):
+                        promote_portal_model_hits(documents)
                     break
             status = FOUND_STATUS if any(
                 classify_document_status(document.get("match_confidence")) == FOUND_STATUS
@@ -927,6 +940,34 @@ def search_terms_for(catalog_number: str, model_number: str | None) -> list[str]
         if term and term not in terms:
             terms.append(term)
     return terms
+
+
+def is_distinctive_identifier(term: str) -> bool:
+    """True when a portal hit on this exact identifier is safe to trust.
+
+    See MIN_PORTAL_TERM_LEN: short identifiers collide inside longer tokens in
+    unrelated file names, which is how catalog 00825 pulled MENTOR documents.
+    """
+    return len(re.sub(r"[^A-Za-z0-9]", "", term or "")) >= MIN_PORTAL_TERM_LEN
+
+
+def promote_portal_model_hits(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark documents the portal returned for the device's exact model number.
+
+    Reached only when the catalog number found nothing and the model did. The
+    portal answers on its own applicability metadata — the model appears nowhere
+    in these titles or file names — so a hit is the manufacturer asserting that
+    the document covers this model. Verified: bogus models (02.007.999) return
+    nothing, and the device-specific document tracks the model correctly
+    (02.007.026 -> OLECRANON OSTEOTOMY NAIL, 04.535.328 -> VOLT Small Fragment).
+
+    This is what makes the Synthes/DePuy family servable at all: 10,447 of those
+    devices carry brand_name "NA", so brand agreement can never verify them.
+    """
+    for document in documents:
+        if document.get("match_confidence") == "search_result":
+            document["match_confidence"] = "model_portal_match"
+    return documents
 
 
 def _normalize_brand_text(text: str) -> str:
