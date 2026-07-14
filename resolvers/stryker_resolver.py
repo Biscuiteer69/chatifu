@@ -120,7 +120,7 @@ def ensure_source_file_name_column(db_path: str | Path) -> None:
     expiring presigned URL gets re-minted. Without it a Stryker row would go
     dead six hours after it was written.
     """
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     try:
         columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(ifu_links)")}
         if "source_file_name" not in columns:
@@ -298,7 +298,7 @@ class StrykerResolver:
         ensure_ifu_links_table(self.db_path)
         ensure_source_file_name_column(self.db_path)
         checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         try:
             with conn:
                 if documents:
@@ -374,7 +374,7 @@ class StrykerResolver:
 
 
 def load_stryker_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqlite3.Row]:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(

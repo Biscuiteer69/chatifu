@@ -11,6 +11,10 @@ from typing import Any, Iterable
 
 VAULT_DIR = Path(os.environ.get("CHATIFU_VAULT_DIR", "/home/biscuited/projects/chatifu_vault"))
 QDRANT_PATH = Path(os.environ.get("CHATIFU_QDRANT_PATH", str(VAULT_DIR / "qdrant")))
+# When set (e.g. http://127.0.0.1:6333), use a Qdrant server instead of the
+# embedded file store. Embedded mode is brute-force (no HNSW index) and is
+# designed for <=20k points; the production collection is far past that.
+QDRANT_URL = os.environ.get("CHATIFU_QDRANT_URL", "").strip()
 SQLITE_PATH = Path(os.environ.get("CHATIFU_SQLITE_PATH", str(VAULT_DIR / "chatifu.sqlite3")))
 COLLECTION = os.environ.get("CHATIFU_COLLECTION", "chatifu_documents")
 VECTOR_SIZE = int(os.environ.get("CHATIFU_VECTOR_SIZE", "768"))
@@ -69,20 +73,41 @@ def qdrant() -> Any:
         return _QDRANT_CLIENT
     QdrantClient, Distance, _, VectorParams = _qdrant_types()
     ensure_dirs()
-    client = QdrantClient(path=str(QDRANT_PATH))
+    if QDRANT_URL:
+        client = QdrantClient(url=QDRANT_URL)
+    else:
+        client = QdrantClient(path=str(QDRANT_PATH))
     existing = {collection.name for collection in client.get_collections().collections}
     if COLLECTION not in existing:
         client.create_collection(
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
         )
+        ensure_payload_indexes(client)
     _QDRANT_CLIENT = client
     return client
 
 
+def ensure_payload_indexes(client: Any) -> None:
+    """Create keyword indexes for every payload field used in filters.
+
+    Payload indexes should exist before points are ingested so Qdrant builds
+    filter-aware HNSW edges; unindexed filter fields push the query planner
+    onto slow or low-recall strategies. Only applies in server mode.
+    """
+    if not QDRANT_URL:
+        return
+    for field in ("metadata.sku", "metadata.source"):
+        client.create_payload_index(
+            collection_name=COLLECTION,
+            field_name=field,
+            field_schema="keyword",
+        )
+
+
 def sqlite() -> sqlite3.Connection:
     ensure_dirs()
-    conn = sqlite3.connect(SQLITE_PATH)
+    conn = sqlite3.connect(SQLITE_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute(
         """

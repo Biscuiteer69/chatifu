@@ -409,7 +409,7 @@ class EifuResolver:
         """GUDID brand names registered for this catalog, used to verify titles."""
         if not Path(self.db_path).exists():
             return []
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         try:
             rows = conn.execute(
                 "SELECT DISTINCT brand_name FROM devices "
@@ -467,7 +467,7 @@ class EifuResolver:
     ) -> None:
         ensure_ifu_links_table(self.db_path)
         checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         try:
             with conn:
                 if documents:
@@ -1027,7 +1027,7 @@ def match_confidence(
 
 
 def ensure_ifu_links_table(db_path: str | Path = SQLITE_PATH) -> None:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     try:
         with conn:
             conn.executescript(
@@ -1146,7 +1146,7 @@ def load_jnj_devices(
     resolve at close to 100% while the rest mostly return not_found — a sweep
     that ignores the distinction spends most of its time on misses.
     """
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(
