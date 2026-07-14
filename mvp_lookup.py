@@ -219,6 +219,11 @@ def ensure_ifu_for_catalog(
 
         ZimmerBiometResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
         return
+    if "medtronic" in company or "covidien" in company:
+        from resolvers.medtronic_resolver import MedtronicResolver
+
+        MedtronicResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
+        return
     EifuResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
 
 
@@ -332,11 +337,17 @@ def get_device(
     catalog_number: str,
     db_path: str | Path = SQLITE_PATH,
 ) -> dict[str, Any] | None:
-    """Return brand_name/company_name/catalog_number/model_number for one device."""
+    """Return brand_name/company_name/catalog_number/model_number for one device.
+
+    The identifier may be a catalog number OR a model number. Whole
+    manufacturers publish neither consistently: of 96,980 Medtronic devices only
+    633 carry a catalog number, so a catalog-only lookup cannot find them at all.
+    """
     if not Path(db_path).exists():
         return None
     conn = db_connect(db_path)
     try:
+        identifier = catalog_number.strip()
         row = conn.execute(
             """
             SELECT brand_name, company_name, catalog_number, model_number
@@ -344,8 +355,20 @@ def get_device(
             WHERE catalog_number = ?
             LIMIT 1
             """,
-            (catalog_number.strip(),),
+            (identifier,),
         ).fetchone()
+        if row is None:
+            # Fall back to the model number — the only identifier Medtronic and
+            # other model-keyed manufacturers publish.
+            row = conn.execute(
+                """
+                SELECT brand_name, company_name, catalog_number, model_number
+                FROM devices
+                WHERE model_number = ?
+                LIMIT 1
+                """,
+                (identifier,),
+            ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
