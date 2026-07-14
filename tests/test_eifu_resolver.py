@@ -18,6 +18,7 @@ from resolvers.eifu_resolver import (
     SESSION_GATE_STATUS,
     TIMEOUT_STATUS,
     EifuResolver,
+    classify_document_status,
     ensure_ifu_links_table,
     detect_gate_page,
     match_confidence,
@@ -286,6 +287,47 @@ class EifuResolverTests(unittest.TestCase):
             ),
             "search_result",
         )
+
+    def test_brand_in_title_promotes_document_the_catalog_never_names(self) -> None:
+        # Catalog 0030-4864's STAR S4 IR booklets carry their own part numbers
+        # (0030-8814 Rev. B) and never mention the catalog anywhere — title,
+        # file name, or PDF body. The brand is the only link.
+        self.assertEqual(
+            match_confidence(
+                "PATIENT INFO BOOKLET, IDESIGN, STAR S4 IR, HYPEROPIA",
+                "0030-4864",
+                source_file_name="0030-8814_RevB.pdf",
+                brand_names=["STAR S4 IR"],
+            ),
+            "brand_match",
+        )
+
+    def test_coincidental_file_name_hit_is_not_promoted_by_brand(self) -> None:
+        # The portal returns MENTOR documents for GYNECARE catalog 00825 because
+        # LAB100825478v3_eIFU.pdf contains "00825". The brand disagrees, so the
+        # document must stay a broad candidate (regression guard for bb70780).
+        self.assertEqual(
+            match_confidence(
+                "MENTOR RESTERILIZABLE GEL BREAST IMPLANT SIZER ePIDS",
+                "00825",
+                source_file_name="LAB100825478v3_eIFU.pdf",
+                brand_names=["GYNECARE THERMACHOICE"],
+            ),
+            "search_result",
+        )
+
+    def test_short_brand_does_not_match(self) -> None:
+        self.assertEqual(
+            match_confidence(
+                "ECHO doppler probe cleaning guide",
+                "XY1234",
+                brand_names=["ECHO"],
+            ),
+            "search_result",
+        )
+
+    def test_brand_match_counts_as_found(self) -> None:
+        self.assertEqual(classify_document_status("brand_match"), "found")
 
     def test_session_initialization_posts_hcp_language_and_terms_before_search(self) -> None:
         resolver = EifuResolver(db_path=self.db_path, delay_sec=0)

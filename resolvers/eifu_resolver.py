@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 VAULT_DIR = Path(__file__).resolve().parents[1]
@@ -29,6 +29,8 @@ HEADERS = {
 }
 FOUND_STATUS = "found"
 CANDIDATE_STATUS = "candidate_broad"
+# Below this length a brand name ("ECHO", "PS") collides with ordinary words.
+MIN_BRAND_LEN = 5
 NOT_FOUND_STATUS = "not_found"
 SESSION_GATE_STATUS = "session_gate"
 AUTH_FAILED_STATUS = "auth_failed"
@@ -211,7 +213,7 @@ def detect_gate_page(content: str) -> str | None:
 
 
 def classify_document_status(match_confidence: str | None) -> str:
-    if match_confidence in {"exact_catalog", "model_match"}:
+    if match_confidence in {"exact_catalog", "model_match", "brand_match"}:
         return FOUND_STATUS
     return CANDIDATE_STATUS
 
@@ -268,7 +270,12 @@ class EifuResolver:
             gate = detect_gate_page(content)
             if gate:
                 raise SessionGateFailure(f"Search returned {gate} gate page.")
-            documents = self._parse_documents(content, catalog_number, model_number)
+            documents = self._parse_documents(
+                content,
+                catalog_number,
+                model_number,
+                brand_names=self.brands_for_catalog(catalog_number),
+            )
             status = FOUND_STATUS if any(
                 classify_document_status(document.get("match_confidence")) == FOUND_STATUS
                 for document in documents
@@ -376,11 +383,29 @@ class EifuResolver:
             time.sleep(self.delay_sec - elapsed)
         self._last_request_at = time.monotonic()
 
+    def brands_for_catalog(self, catalog_number: str) -> list[str]:
+        """GUDID brand names registered for this catalog, used to verify titles."""
+        if not Path(self.db_path).exists():
+            return []
+        conn = sqlite3.connect(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT brand_name FROM devices "
+                "WHERE catalog_number = ? AND brand_name IS NOT NULL AND brand_name != ''",
+                (catalog_number,),
+            ).fetchall()
+        except sqlite3.Error:
+            return []
+        finally:
+            conn.close()
+        return [str(row[0]) for row in rows]
+
     def _parse_documents(
         self,
         content: str,
         catalog_number: str,
         model_number: str | None,
+        brand_names: Iterable[str] | None = None,
     ) -> list[dict[str, Any]]:
         parser = SearchResultParser(BASE_URL)
         parser.feed(content)
@@ -403,6 +428,7 @@ class EifuResolver:
                         catalog_number,
                         model_number,
                         source_file_name=document.get("source_file_name"),
+                        brand_names=brand_names,
                     ),
                     "source_file_name": document.get("source_file_name"),
                 }
@@ -878,11 +904,32 @@ def _identifier_in_file_name(identifier: str, file_name: str | None) -> bool:
     return identifier.lower() in tokens or normalized in tokens
 
 
+def _normalize_brand_text(text: str) -> str:
+    """Uppercase, drop trademark marks and punctuation, collapse whitespace."""
+    text = text.replace("™", " ").replace("®", " ")
+    text = re.sub(r"[^A-Za-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def brand_in_title(brand: str, title: str) -> bool:
+    """True when the device's full brand phrase appears in the document title.
+
+    The whole phrase must match, not individual tokens: "STAR" alone would hit
+    unrelated titles, while "STAR S4 IR" identifies the device. Brands shorter
+    than MIN_BRAND_LEN collide with ordinary words and are rejected.
+    """
+    normalized_brand = _normalize_brand_text(brand or "")
+    if len(normalized_brand) < MIN_BRAND_LEN:
+        return False
+    return f" {normalized_brand} " in f" {_normalize_brand_text(title)} "
+
+
 def match_confidence(
     title: str,
     catalog_number: str,
     model_number: str | None = None,
     source_file_name: str | None = None,
+    brand_names: Iterable[str] | None = None,
 ) -> str:
     title_lower = title.lower()
     if catalog_number:
@@ -895,6 +942,14 @@ def match_confidence(
             model_number, source_file_name
         ):
             return "model_match"
+    # The portal substring-matches the catalog against document metadata, so a
+    # coincidental hit can carry the catalog inside a longer file-name token
+    # (LAB100825478v3_eIFU.pdf contains catalog 00825) while a genuine hit
+    # carries it nowhere at all — catalog 0030-4864's STAR S4 IR booklets never
+    # mention it. Brand agreement, not the catalog string, separates the two.
+    for brand in brand_names or ():
+        if brand_in_title(brand, title):
+            return "brand_match"
     return "search_result"
 
 
