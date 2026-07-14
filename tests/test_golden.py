@@ -19,7 +19,10 @@ from pathlib import Path
 import pytest
 
 API = os.environ.get("CHATIFU_API_URL", "http://127.0.0.1:8123")
-BETA = os.environ.get("CHATIFU_BETA_CODE", "")
+# The API reads CHATIFU_BETA_CODES (plural, comma-separated); this gate read the
+# singular name, so BETA was always empty and every golden query silently
+# skipped. Accept the plural name and take the first code.
+BETA = os.environ.get("CHATIFU_BETA_CODES", os.environ.get("CHATIFU_BETA_CODE", "")).split(",")[0].strip()
 GOLDEN = json.loads((Path(__file__).parent / "golden_queries.json").read_text())["cases"]
 
 
@@ -48,7 +51,10 @@ pytestmark = pytest.mark.integration
 @pytest.mark.parametrize("case", GOLDEN, ids=[c["catalog"] for c in GOLDEN])
 def test_golden_query(case):
     if not _api_up():
-        pytest.skip("vault API not reachable on 127.0.0.1:8123")
+        # Fail rather than skip: this gate is opt-in (-m integration) and runs
+        # deliberately before opening beta traffic. Skipping on an unreachable
+        # API would report the deploy as green against a dead service.
+        pytest.fail(f"vault API not reachable at {API} — cannot verify golden queries")
     data = _answer(case["catalog"], case["question"])
     assert not data.get("error"), f"{case['catalog']}: {data.get('error')}"
     hits = data.get("hits") or []
