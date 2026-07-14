@@ -130,10 +130,20 @@ def refresh_devices_fts(conn: sqlite3.Connection, devices: list[dict[str, str]])
         conn.execute("delete from devices_fts where rowid=?", (row[0],))
         conn.execute(
             """
-            insert into devices_fts(rowid, brand_name, company_name, catalog_number)
-            values (?, ?, ?, ?)
+            insert into devices_fts(rowid, brand_name, company_name, catalog_number, model_number)
+            values (?, ?, ?, ?, ?)
             """,
-            (row[0], device.get("brand_name"), device.get("company_name"), device.get("catalog_number")),
+            # model_number is indexed because whole manufacturers identify devices
+            # by it and leave catalogNumber empty: 96,980 Medtronic devices have a
+            # model number and only 633 have a catalog number, so without this they
+            # cannot be found at all.
+            (
+                row[0],
+                device.get("brand_name"),
+                device.get("company_name"),
+                device.get("catalog_number"),
+                device.get("model_number"),
+            ),
         )
 
 

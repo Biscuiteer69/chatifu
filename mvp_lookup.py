@@ -259,7 +259,7 @@ def search_devices(
         return []
     conn = db_connect(db_path)
     try:
-        terms = [t for t in query.split() if t]
+        terms = [fts_phrase(t) for t in query.split() if t]
         rows = _fts_query(conn, " ".join(terms), limit)
         if not rows and len(terms) > 1:
             rows = _fts_query(conn, " OR ".join(terms), limit)
@@ -291,6 +291,18 @@ def _fts_query(
         return []
 
 
+def fts_phrase(term: str) -> str:
+    """Quote a term so FTS5 treats it as a literal phrase.
+
+    Device identifiers are full of characters FTS5 reads as syntax. An
+    unquoted "MI-001F" is parsed as a column filter and raises
+    "no such column: 001F"; the caller then silently falls back to a LIKE scan
+    over 1.26M rows. Since most catalog numbers are hyphenated, the index was
+    being bypassed for nearly every identifier search.
+    """
+    return '"' + term.replace('"', '""') + '"'
+
+
 def _like_query(
     conn: sqlite3.Connection, query: str, limit: int
 ) -> list[dict[str, Any]]:
@@ -302,10 +314,11 @@ def _like_query(
         WHERE brand_name LIKE ?
            OR company_name LIKE ?
            OR catalog_number LIKE ?
+           OR model_number LIKE ?
         ORDER BY brand_name
         LIMIT ?
         """,
-        (pattern, pattern, pattern, limit),
+        (pattern, pattern, pattern, pattern, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 
