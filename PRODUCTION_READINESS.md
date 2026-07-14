@@ -1,5 +1,27 @@
 # ChatIFU Beta Production Readiness
 
+## Status 2026-07-13 (supersedes the 2026-06-19 notes below)
+
+Verified on the DGX itself, so the "needs to be verified on the box" caveat below no longer applies.
+
+**Correction — the domain is NOT Cloudflare-fronted.** The 2026-06-19 note inferred Cloudflare from response headers, but those come from Render's own edge. `chatifu.com` uses **GoDaddy nameservers** (`ns43/ns44.domaincontrol.com`) and resolves straight to Render (`216.24.57.1`). Cloudflare is therefore *not authoritative* for the zone, which means a Cloudflare Tunnel hostname (`api.chatifu.com`) **cannot resolve** until the nameservers move to Cloudflare. A `cfargotunnel.com` CNAME from GoDaddy does not work — it only resolves inside Cloudflare's proxy, and CNAME-only ("partial") setup is a Business-plan feature. The zone has no MX or TXT records, so the nameserver move is low-risk.
+
+Done:
+- Cloudflare Tunnel connector running on the DGX (`cloudflared-chatifu.service`, token mode), tunnel healthy, `api` route created — but invisible to the internet pending the nameserver move above.
+- Auth closed: `CHATIFU_ALLOW_UNAUTHENTICATED=0`, API token + beta codes set, CORS restricted to `https://chatifu.com,https://www.chatifu.com`.
+- Frontend carries beta framing and "not medical advice" copy (ship blocker 5).
+- Qdrant moved from embedded to server mode (see below); embedded mode was brute-force with no HNSW index and designed for <=20k points, while the collection holds 1.44M.
+
+Open:
+- **Nameserver move to Cloudflare** — the only thing blocking a public URL.
+- **Multi-document selection.** A device can map to several legitimate IFUs (catalog `0030-4864` has 9: patient booklets *and* professional-use info across four vision corrections). `get_best_ifu_url` returns one deterministically but arbitrarily, so a clinician asking about warnings may get a patient booklet. This also makes the golden-query gate unreliable: 3 of its 4 cases have multiple documents, so pass/fail depends on which one is picked.
+
+Coverage note: servable devices went 6 -> 25. The bottleneck was never latency. e-ifu.com substring-matches the catalog against document metadata, so it returns genuine device->document mappings *mixed with* coincidental file-name hits (catalog `00825` returns MENTOR documents because `LAB100825478v3_eIFU.pdf` contains "00825"). Crucially the coincidental hits look *more* textually convincing than the real ones — catalog `0030-4864` appears nowhere in its own STAR S4 IR booklets, not even in the PDF body. Brand agreement between the device's GUDID brand and the document title is what separates them.
+
+---
+
+## 2026-06-19 notes (historical)
+
 Current local status: this workspace contains the DGX vault recovery/backend package, not the full public Streamlit app. Direct SSH to `biscuited@192.168.0.86` timed out from the Mac on 2026-06-19, so DGX runtime state still needs to be verified on the box.
 
 Public site check on 2026-06-19:
