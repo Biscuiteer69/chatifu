@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sqlite3
 import time
@@ -64,8 +65,19 @@ HEADERS = {
     "referer": "https://labeling.stryker.com/",
     "user-agent": "Mozilla/5.0 ChatIFU/1.0",
 }
-# Product attributes whose value carries the catalog/REF number.
-REF_ATTRIBUTE_NAMES = ("ref or catalog number", "catalog number", "ref")
+# Product attributes whose value carries the catalog/REF number. Tenants name
+# this field differently ("Ref or catalog number" on Stryker, "Reference or
+# catalog number" on Zimmer Biomet).
+REF_ATTRIBUTE_NAMES = (
+    "ref or catalog number",
+    "reference or catalog number",
+    "catalog number",
+    "reference number",
+    "ref",
+)
+# Requests are staggered with jitter so a sweep does not look like a metronome
+# to the WAF, which blocks the whole client IP across every tenant.
+JITTER_SEC = 1.0
 
 
 class WafBlocked(Exception):
@@ -142,6 +154,12 @@ def ensure_source_file_name_column(db_path: str | Path) -> None:
 
 
 class StrykerResolver:
+    # Per-tenant config; the Qarad platform selects the manufacturer from the
+    # Origin header, so a new manufacturer is a subclass, not a new resolver.
+    ORIGIN = "https://labeling.stryker.com"
+    SEARCH_BUSINESS_UNIT = 0  # tenants with isGlobalSearch=False need their own
+    FAMILY = MANUFACTURER_FAMILY
+
     def __init__(
         self,
         db_path: str | Path = SQLITE_PATH,
@@ -151,6 +169,7 @@ class StrykerResolver:
         self.db_path = Path(db_path)
         self.delay_sec = delay_sec
         self.country = country
+        self.headers = {**HEADERS, "origin": self.ORIGIN, "referer": self.ORIGIN + "/"}
         self._last_request_at = 0.0
         self._business_units: dict[str, int] | None = None
         self._product_types: dict[int, dict[str, int]] = {}
@@ -158,13 +177,14 @@ class StrykerResolver:
     # -- HTTP ---------------------------------------------------------------
 
     def _request(self, url: str, payload: dict[str, Any] | None = None) -> Any:
+        wait = self.delay_sec + random.uniform(0.0, JITTER_SEC)
         elapsed = time.monotonic() - self._last_request_at
-        if elapsed < self.delay_sec:
-            time.sleep(self.delay_sec - elapsed)
+        if elapsed < wait:
+            time.sleep(wait - elapsed)
         self._last_request_at = time.monotonic()
 
         data = json.dumps(payload).encode() if payload is not None else None
-        request = urllib.request.Request(url, data=data, headers=HEADERS)
+        request = urllib.request.Request(url, data=data, headers=self.headers)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.loads(response.read().decode("utf-8"))
@@ -193,7 +213,8 @@ class StrykerResolver:
             "country": self.country,
         }
         data = self._request(
-            f"{BASE_URL}/business-units/0/product-types/1/products?audience=HCP&page=0",
+            f"{BASE_URL}/business-units/{self.SEARCH_BUSINESS_UNIT}"
+            f"/product-types/1/products?audience=HCP&page=0",
             payload=payload,
         )
         return list(data.get("items") or [])
@@ -364,7 +385,7 @@ class StrykerResolver:
                             """,
                             (
                                 device.rowid, device.primary_di, device.catalog_number,
-                                MANUFACTURER_FAMILY, source_url, document["document_url"],
+                                self.FAMILY, source_url, document["document_url"],
                                 document["document_title"], document["language"],
                                 document["revision"], document["match_confidence"],
                                 checked_at, FOUND_STATUS,
@@ -398,7 +419,7 @@ class StrykerResolver:
                         """,
                         (
                             device.rowid, device.primary_di, device.catalog_number,
-                            MANUFACTURER_FAMILY, source_url, checked_at, status,
+                            self.FAMILY, source_url, checked_at, status,
                             checked_at, checked_at,
                             checked_at if status == NOT_FOUND_STATUS else None,
                             None if status == NOT_FOUND_STATUS else checked_at,

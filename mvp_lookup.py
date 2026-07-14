@@ -214,6 +214,11 @@ def ensure_ifu_for_catalog(
 
         StrykerResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
         return
+    if "zimmer" in company or "biomet" in company:
+        from resolvers.zimmer_resolver import ZimmerBiometResolver
+
+        ZimmerBiometResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
+        return
     EifuResolver(db_path=db_path).resolve(catalog_number, model_number=model_number)
 
 
