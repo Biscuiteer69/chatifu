@@ -619,12 +619,18 @@ def load_edwards_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[
     try:
         return conn.execute(
             """
-            select rowid, company_name, brand_name, model_number, catalog_number, raw_json
-            from devices
-            where catalog_number is not null
-              and trim(catalog_number) != ''
-              and lower(company_name) like '%edwards lifesciences%'
-            order by catalog_number
+            select d.rowid, d.company_name, d.brand_name, d.model_number,
+                   d.catalog_number, d.raw_json
+            from devices d
+            where d.catalog_number is not null
+              and trim(d.catalog_number) != ''
+              and lower(d.company_name) like '%edwards lifesciences%'
+              and not exists (
+                select 1 from ifu_links l
+                where l.catalog_number = d.catalog_number
+                  and l.status in ('found', 'candidate_broad', 'not_found')
+              )
+            order by d.catalog_number
             limit ?
             """,
             (limit,),
