@@ -4,122 +4,192 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ChatIFU — official Instructions for Use, highlighted</title>
+<link rel="icon" href="./chatifu-icon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --ink: #17212b; --muted: #5d6978; --line: #e3e8ee; --panel: #ffffff;
-    --bg: #f4f6f9; --focus: #0066cc; --hl: #ffe86b;
+    --ink: #0d1b2a; --muted: #64707f; --line: #e9edf2; --panel: #ffffff;
+    --bg: #ffffff; --brand: #002850; --brand-2: #0a4a86; --hl: #ffe86b;
+    --doc-bg: #eceff3;
+    /* Claude-style pairing: Inter (Styrene-like sans) for UI, Source Serif 4
+       (Tiempos-like serif) for editorial display text. */
+    --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: var(--ink); background: var(--bg); display: flex; flex-direction: column; height: 100vh;
+    font: 15px/1.55 var(--font-sans);
+    color: var(--ink); background: var(--bg); height: 100vh; -webkit-font-smoothing: antialiased;
   }
-  header {
-    background: var(--panel); border-bottom: 1px solid var(--line);
-    padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  button { font: inherit; cursor: pointer; border: 0; }
+
+  /* ===================== View switching ===================== */
+  #landing, #reader { display: none; height: 100vh; }
+  body.view-landing #landing { display: flex; }
+  body.view-reader  #reader  { display: flex; }
+
+  /* ===================== Landing ===================== */
+  #landing { flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px; }
+  .landingInner {
+    width: 100%; max-width: 640px; margin: auto; display: flex; flex-direction: column;
+    align-items: center; text-align: center; padding-bottom: 12vh;
   }
-  .brand { font-weight: 800; font-size: 1.15rem; letter-spacing: -0.02em; }
-  .brand span { color: var(--focus); }
-  .beta-tag {
-    font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
-    background: #fff2a8; color: #7a5b00; padding: 2px 7px; border-radius: 999px;
+  .heroLogo { width: min(500px, 86vw); height: auto; margin-bottom: 30px; }
+  .landingInner h1 {
+    margin: 0 0 12px; font-family: var(--font-serif); font-size: clamp(1.9rem, 4.1vw, 2.8rem); font-weight: 600;
+    letter-spacing: -0.012em; color: var(--brand); line-height: 1.1;
   }
-  form.search { display: flex; gap: 8px; flex: 1 1 340px; min-width: 240px; }
-  input[type=text] {
-    flex: 1; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff;
+  .landingInner .sub {
+    margin: 0 0 40px; font-family: var(--font-serif); font-size: clamp(1.05rem, 1.8vw, 1.24rem);
+    color: var(--muted); max-width: 520px;
   }
-  input[type=text]:focus { outline: 2px solid var(--focus); border-color: var(--focus); }
-  button {
-    padding: 9px 16px; border: 0; border-radius: 8px; font: inherit; font-weight: 700;
-    color: #fff; background: var(--focus); cursor: pointer;
+
+  .searchWrap { position: relative; width: 100%; max-width: 600px; }
+  .bigSearch {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    background: #fff; border: 1px solid #dfe5ec; border-radius: 999px; padding: 15px 22px;
+    box-shadow: 0 1px 2px rgba(13,27,42,.04), 0 10px 30px rgba(13,27,42,.07);
+    transition: box-shadow .18s ease, border-color .18s ease;
   }
-  button.ghost { background: #eef2f7; color: var(--ink); }
-  button:disabled { opacity: .5; cursor: default; }
-  main { flex: 1; display: flex; min-height: 0; }
-  .results { width: 320px; border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
-  .results.empty { display: none; }
-  .device {
-    padding: 11px 14px; border-bottom: 1px solid var(--line); cursor: pointer;
+  .bigSearch:focus-within { border-color: #c4d2e2; box-shadow: 0 1px 2px rgba(0,40,80,.05), 0 14px 40px rgba(0,40,80,.13); }
+  .bigSearch .si { width: 22px; height: 22px; flex: 0 0 auto; color: #9aa7b6; }
+  .bigSearch input {
+    flex: 1; border: 0; outline: 0; font: inherit; font-size: 1.08rem; background: transparent; color: var(--ink);
   }
-  .device:hover { background: #f7fafc; }
-  .device.sel { background: #eaf3ff; box-shadow: inset 3px 0 0 var(--focus); }
-  .device .b { font-weight: 700; }
-  .device .m { color: var(--muted); font-size: .82rem; margin-top: 2px; }
-  .stage { flex: 1; display: flex; min-width: 0; }
-  .viewer { flex: 1; overflow: auto; background: #333a44; padding: 16px; }
-  .pageWrap { position: relative; margin: 0 auto 14px; box-shadow: 0 2px 14px rgba(0,0,0,.4); width: max-content; }
-  .pageWrap canvas { display: block; }
+  .bigSearch input::placeholder { color: #9aa7b6; }
+
+  /* Autocomplete dropdown */
+  .suggest {
+    position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #fff;
+    border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 16px 44px rgba(13,27,42,.14);
+    overflow: hidden; text-align: left; z-index: 20; display: none;
+  }
+  .suggest.open { display: block; }
+  .sug {
+    padding: 12px 20px; cursor: pointer; border-bottom: 1px solid #f2f5f8; display: flex; flex-direction: column; gap: 2px;
+  }
+  .sug:last-child { border-bottom: 0; }
+  .sug:hover, .sug.active { background: #f5f8fc; }
+  .sug .b { font-weight: 650; color: var(--ink); }
+  .sug .m { font-size: .84rem; color: var(--muted); }
+  .sug.info { color: var(--muted); cursor: default; }
+
+  .foot { margin-top: 30px; color: #9aa7b6; font-size: .8rem; }
+
+  /* ===================== Reader ===================== */
+  #reader { flex-direction: column; }
+  .vbar {
+    display: flex; align-items: center; gap: 16px; padding: 10px 18px;
+    background: #fff; border-bottom: 1px solid var(--line); flex: 0 0 auto; z-index: 10;
+  }
+  .brandMini { flex: 0 0 auto; display: inline-flex; }
+  .brandMini img { height: 26px; width: auto; display: block; }
+  .askBar {
+    flex: 1 1 auto; display: flex; align-items: center; gap: 10px; max-width: 780px;
+    background: #fff; border: 1px solid #dfe5ec; border-radius: 999px; padding: 9px 10px 9px 18px;
+  }
+  .askBar:focus-within { border-color: #b9cbdf; box-shadow: 0 4px 16px rgba(0,40,80,.10); }
+  .askBar .si { width: 19px; height: 19px; flex: 0 0 auto; color: #9aa7b6; }
+  .askBar input { flex: 1; border: 0; outline: 0; font: inherit; font-size: 1rem; background: transparent; }
+  .askBar input::placeholder { color: #9aa7b6; }
+  .askBar button.go {
+    flex: 0 0 auto; height: 38px; padding: 0 18px; border-radius: 999px; background: var(--brand);
+    color: #fff; font-weight: 700;
+  }
+  .askBar button.go:hover { background: var(--brand-2); }
+  .askBar button.go:disabled { opacity: .55; }
+
+  .answerStrip {
+    flex: 0 0 auto; display: none; align-items: flex-start; gap: 12px; padding: 11px 20px;
+    background: #f6f9fd; border-bottom: 1px solid var(--line); color: var(--ink); font-size: .9rem;
+  }
+  .answerStrip.show { display: flex; }
+  .answerStrip .pg {
+    flex: 0 0 auto; font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    color: #fff; background: var(--brand); padding: 4px 9px; border-radius: 6px; margin-top: 1px;
+  }
+  .answerStrip .txt { flex: 1; min-width: 0; }
+  .answerStrip .sec { font-weight: 700; }
+  .answerStrip a.open { color: var(--brand); font-weight: 700; text-decoration: none; white-space: nowrap; }
+
+  .doc {
+    flex: 1 1 auto; overflow: auto; background: var(--doc-bg); padding: 28px 16px 60px; scroll-behavior: smooth;
+  }
+  .pageWrap {
+    position: relative; margin: 0 auto 20px; background: #fff; box-shadow: 0 4px 22px rgba(13,27,42,.16);
+    width: max-content; max-width: 100%; border-radius: 2px;
+  }
+  .pageWrap canvas { display: block; max-width: 100%; height: auto; }
   .hlLayer { position: absolute; inset: 0; pointer-events: none; }
   .hl { position: absolute; background: var(--hl); mix-blend-mode: multiply; border-radius: 2px; }
-  .askPane {
-    width: 380px; border-left: 1px solid var(--line); background: var(--panel);
-    overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
-  }
-  .askForm { display: flex; gap: 8px; }
-  .hitCard { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
-  .hitCard .pg { font-size: .72rem; font-weight: 800; color: var(--focus); text-transform: uppercase; letter-spacing: .05em; }
-  .hitCard .sec { font-weight: 700; margin: 3px 0 6px; }
-  .hitCard .snip { background: #fff7cc; padding: 8px 10px; border-radius: 6px; font-size: .9rem; }
-  .hitCard .jump { margin-top: 8px; background: #eef2f7; color: var(--ink); font-size: .8rem; padding: 6px 10px; }
-  .muted { color: var(--muted); }
-  .safety { font-size: .78rem; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; }
-  .empty-hint { padding: 40px; text-align: center; color: var(--muted); max-width: 520px; margin: auto; }
-  .loader { color: var(--muted); }
-  .err { background: #fff1ef; border: 1px solid #f2c0b8; color: #a3341f; padding: 10px 12px; border-radius: 8px; }
+  .docStatus { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .docStatus.err { color: #a3341f; }
+
+  /* ===================== Beta gate ===================== */
   #gate {
-    position: fixed; inset: 0; background: rgba(23,33,43,.55); display: none;
+    position: fixed; inset: 0; background: rgba(13,27,42,.5); display: none;
     align-items: center; justify-content: center; z-index: 50;
   }
-  #gate .card { background: #fff; padding: 24px; border-radius: 14px; width: 340px; max-width: 92vw; }
-  #gate h2 { margin: 0 0 6px; }
-  #gate input { width: 100%; margin: 12px 0; }
-  a.openIfu { color: var(--focus); font-weight: 700; text-decoration: none; }
+  #gate .card { background: #fff; padding: 26px; border-radius: 16px; width: 350px; max-width: 92vw; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
+  #gate h2 { margin: 0 0 6px; color: var(--brand); }
+  #gate p { margin: 0; color: var(--muted); }
+  #gate input { width: 100%; margin: 14px 0; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
+  #gate button { width: 100%; padding: 12px; border-radius: 10px; background: var(--brand); color: #fff; font-weight: 700; }
 </style>
 </head>
-<body>
-<header>
-  <div class="brand">Chat<span>IFU</span></div>
-  <span class="beta-tag">Beta</span>
-  <form class="search" id="searchForm">
-    <input type="text" id="q" placeholder="Search a device — name, brand, or catalog number" autocomplete="off" />
-    <button type="submit">Search</button>
-    <button type="button" class="ghost" id="settingsBtn" title="Beta settings">⚙</button>
-  </form>
-</header>
+<body class="view-landing">
 
-<main>
-  <div class="results empty" id="results"></div>
-  <div class="stage">
-    <div class="viewer" id="viewer">
-      <div class="empty-hint" id="hint">
-        <h3>Read the source, not a summary.</h3>
-        <p>Search a medical device, ask a question, and ChatIFU highlights the answer
-        directly inside the manufacturer's official Instructions for Use.</p>
-      </div>
-    </div>
-    <div class="askPane" id="askPane" style="display:none">
-      <div id="deviceHead"></div>
-      <form class="askForm" id="askForm">
-        <input type="text" id="question" placeholder="Ask about this device…" autocomplete="off" />
-        <button type="submit">Ask</button>
+<!-- ===================== Landing ===================== -->
+<section id="landing">
+  <div class="landingInner">
+    <img class="heroLogo" src="./chatifu-logo.png" alt="ChatIFU" />
+    <h1>Every IFU. One question away.</h1>
+    <p class="sub">Instant answers on any medical device, built for the OR.</p>
+    <div class="searchWrap">
+      <form class="bigSearch" id="deviceForm" autocomplete="off">
+        <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="deviceQ" placeholder="Search any medical device — name, brand, or catalog number" autofocus />
       </form>
-      <div id="answer"></div>
-      <div class="safety">
-        ChatIFU shows the manufacturer's official IFU and highlights the matching passage.
-        Always verify against the complete IFU before clinical use. Beta — retrieval over
-        manufacturer/FDA documentation, not medical advice.
-      </div>
+      <div class="suggest" id="suggest"></div>
     </div>
+    <div class="foot">Beta — ChatIFU highlights the manufacturer's official Instructions for Use. Not medical advice.</div>
   </div>
-</main>
+</section>
 
+<!-- ===================== Reader ===================== -->
+<section id="reader">
+  <div class="vbar">
+    <a class="brandMini" href="/" title="ChatIFU home"><img src="./chatifu-logo.png" alt="ChatIFU" /></a>
+    <form class="askBar" id="askForm" autocomplete="off">
+      <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" id="askQ" placeholder="Ask a question — e.g. contraindications, MRI safety, sterilization cycle" />
+      <button type="submit" class="go" id="askBtn">Ask</button>
+    </form>
+  </div>
+  <div class="answerStrip" id="answerStrip">
+    <span class="pg" id="answerPg">P.—</span>
+    <div class="txt"><span class="sec" id="answerSec"></span> <span id="answerDoc" class="muted"></span></div>
+    <a class="open" id="answerOpen" href="#" target="_blank" rel="noopener" style="display:none">Open full official IFU ↗</a>
+  </div>
+  <div class="doc" id="doc">
+    <div class="docStatus" id="docStatus">Loading the official IFU…</div>
+  </div>
+</section>
+
+<!-- ===================== Beta gate ===================== -->
 <div id="gate">
   <div class="card">
     <h2>Beta access</h2>
-    <p class="muted">Enter your invite code to use the ChatIFU beta.</p>
+    <p>Enter your invite code to use the ChatIFU beta.</p>
     <input type="text" id="gateCode" placeholder="Invite code" />
-    <button id="gateSave" style="width:100%">Continue</button>
+    <button id="gateSave">Continue</button>
   </div>
 </div>
 
@@ -135,173 +205,247 @@ const API_BASE = (params.get("api") || localStorage.getItem("chatifu_api") ||
 ).replace(/\/$/, "");
 function betaCode() { return localStorage.getItem("chatifu_beta") || ""; }
 function headers(extra) { return Object.assign({ "X-Beta-Code": betaCode() }, extra || {}); }
+const $ = (id) => document.getElementById(id);
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 
 // --- Beta gate ------------------------------------------------------------
-const gate = document.getElementById("gate");
+let pendingAction = null;   // () => void, re-run after code entered
 function openGate() {
-  document.getElementById("gateCode").value = betaCode();
-  gate.style.display = "flex";
+  $("gateCode").value = betaCode();
+  $("gate").style.display = "flex";
+  setTimeout(() => $("gateCode").focus(), 30);
 }
-document.getElementById("gateSave").onclick = () => {
-  const v = document.getElementById("gateCode").value.trim();
-  const api = params.get("api");
-  if (api) localStorage.setItem("chatifu_api", api);
+$("gateSave").onclick = () => {
+  const v = $("gateCode").value.trim();
+  if (params.get("api")) localStorage.setItem("chatifu_api", params.get("api"));
   localStorage.setItem("chatifu_beta", v);
-  gate.style.display = "none";
+  $("gate").style.display = "none";
+  const a = pendingAction; pendingAction = null;
+  if (a) a();
 };
-document.getElementById("settingsBtn").onclick = openGate;
-if (!betaCode()) openGate();
 
-// --- State ----------------------------------------------------------------
-let currentCatalog = null;
-let pdfDoc = null;
-let pageDivs = {};        // page number -> {wrap, hlLayer, viewport}
-const viewerEl = document.getElementById("viewer");
+// --- View helpers ---------------------------------------------------------
+function showLanding() { document.body.className = "view-landing"; setTimeout(() => $("deviceQ").focus(), 30); }
+function showReader() { document.body.className = "view-reader"; }
 
-// --- Search ---------------------------------------------------------------
-const resultsEl = document.getElementById("results");
-document.getElementById("searchForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const q = document.getElementById("q").value.trim();
-  if (!q) return;
-  resultsEl.className = "results";
-  resultsEl.innerHTML = '<div class="device muted">Searching…</div>';
+// ==========================================================================
+// Landing: device search with autocomplete
+// ==========================================================================
+const suggestEl = $("suggest");
+let sugItems = [];       // current suggestions (devices)
+let sugActive = -1;
+let sugTimer = null;
+
+function closeSuggest() { suggestEl.className = "suggest"; suggestEl.innerHTML = ""; sugItems = []; sugActive = -1; }
+
+async function fetchSuggest(q) {
+  q = q.trim();
+  if (q.length < 2) { closeSuggest(); return; }
   try {
-    const r = await fetch(`${API_BASE}/device/search?q=${encodeURIComponent(q)}&limit=25`, { headers: headers() });
-    if (r.status === 401) { openGate(); return; }
+    const r = await fetch(`${API_BASE}/device/search?q=${encodeURIComponent(q)}&limit=8`, { headers: headers() });
+    if (r.status === 401) { pendingAction = () => fetchSuggest(q); openGate(); return; }
     const data = await r.json();
-    renderResults(data.devices || []);
-  } catch (err) { resultsEl.innerHTML = `<div class="device err">${err.message}</div>`; }
-};
+    renderSuggest(data.devices || []);
+  } catch (e) { /* silent on keystroke */ }
+}
 
-function renderResults(devices) {
-  if (!devices.length) { resultsEl.innerHTML = '<div class="device muted">No devices found.</div>'; return; }
-  resultsEl.innerHTML = "";
-  for (const d of devices) {
-    const el = document.createElement("div");
-    el.className = "device";
-    const cat = d.catalog_number || d.model_number || "";
-    el.innerHTML = `<div class="b">${esc(d.brand_name || "(unnamed)")}</div>
-      <div class="m">${esc(d.company_name || "")}${cat ? " · " + esc(cat) : ""}</div>`;
-    el.onclick = () => selectDevice(d, el);
-    resultsEl.appendChild(el);
+function renderSuggest(devices) {
+  sugItems = devices; sugActive = -1;
+  if (!devices.length) {
+    suggestEl.innerHTML = '<div class="sug info">No devices found.</div>';
+    suggestEl.className = "suggest open"; return;
   }
+  suggestEl.innerHTML = devices.map((d, i) => {
+    const cat = d.catalog_number || d.model_number || "";
+    return `<div class="sug" data-i="${i}">
+      <div class="b">${esc(d.brand_name || "(unnamed)")}</div>
+      <div class="m">${esc(d.company_name || "")}${cat ? " · " + esc(cat) : ""}</div>
+    </div>`;
+  }).join("");
+  suggestEl.className = "suggest open";
+  suggestEl.querySelectorAll(".sug[data-i]").forEach(el =>
+    el.onclick = () => pickDevice(sugItems[parseInt(el.dataset.i, 10)]));
 }
 
-function selectDevice(d, el) {
-  document.querySelectorAll(".device.sel").forEach(n => n.classList.remove("sel"));
-  el.classList.add("sel");
-  currentCatalog = d.catalog_number || d.model_number || "";
-  document.getElementById("askPane").style.display = "flex";
-  document.getElementById("deviceHead").innerHTML =
-    `<div style="font-weight:700">${esc(d.brand_name || currentCatalog)}</div>
-     <div class="muted" style="font-size:.85rem">${esc(d.company_name || "")} · ${esc(currentCatalog)}</div>`;
-  document.getElementById("answer").innerHTML = '<p class="muted">Ask a question to highlight the answer in the IFU.</p>';
-  document.getElementById("question").focus();
+$("deviceQ").addEventListener("input", (e) => {
+  clearTimeout(sugTimer);
+  const q = e.target.value;
+  sugTimer = setTimeout(() => fetchSuggest(q), 170);
+});
+$("deviceQ").addEventListener("keydown", (e) => {
+  if (!sugItems.length) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); sugActive = Math.min(sugActive + 1, sugItems.length - 1); paintActive(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); sugActive = Math.max(sugActive - 1, 0); paintActive(); }
+});
+function paintActive() {
+  suggestEl.querySelectorAll(".sug[data-i]").forEach((el, i) => el.classList.toggle("active", i === sugActive));
 }
-
-// --- Ask + highlight ------------------------------------------------------
-document.getElementById("askForm").onsubmit = async (e) => {
+$("deviceForm").onsubmit = async (e) => {
   e.preventDefault();
-  const question = document.getElementById("question").value.trim();
+  if (sugActive >= 0 && sugItems[sugActive]) { pickDevice(sugItems[sugActive]); return; }
+  if (sugItems.length) { pickDevice(sugItems[0]); return; }
+  // No suggestions loaded yet — run a direct search and take the top hit.
+  const q = $("deviceQ").value.trim(); if (!q) return;
+  if (!betaCode()) { pendingAction = () => $("deviceForm").onsubmit(e); openGate(); return; }
+  try {
+    const r = await fetch(`${API_BASE}/device/search?q=${encodeURIComponent(q)}&limit=1`, { headers: headers() });
+    if (r.status === 401) { pendingAction = () => $("deviceForm").onsubmit(e); openGate(); return; }
+    const data = await r.json();
+    if ((data.devices || []).length) pickDevice(data.devices[0]);
+    else renderSuggest([]);
+  } catch (err) { /* noop */ }
+};
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".searchWrap")) closeSuggest();
+});
+
+// ==========================================================================
+// Reader
+// ==========================================================================
+let currentCatalog = null;
+let currentDevice = null;
+let pdfDoc = null;
+let pageDivs = {};           // page number -> {wrap, hlLayer, viewport, page}
+let loadedProxyPath = null;  // which document is currently rendered
+const docEl = $("doc");
+
+function pickDevice(d) {
+  if (!betaCode()) { pendingAction = () => pickDevice(d); openGate(); return; }
+  closeSuggest();
+  currentDevice = d;
+  currentCatalog = d.catalog_number || d.model_number || "";
+  showReader();
+  $("askQ").value = "";
+  $("answerStrip").className = "answerStrip";
+  $("askQ").placeholder = `Ask about ${d.brand_name || currentCatalog} — contraindications, MRI safety, sterilization…`;
+  // Show the device's default IFU immediately so it can be read/scrolled.
+  loadDoc(`/ifu/pdf?catalog=${encodeURIComponent(currentCatalog)}`, [], null);
+  setTimeout(() => $("askQ").focus(), 60);
+}
+
+// Ask a question -> find + highlight the answer.
+$("askForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const question = $("askQ").value.trim();
   if (!question || !currentCatalog) return;
-  const ans = document.getElementById("answer");
-  ans.innerHTML = '<p class="loader">Reading the official IFU…</p>';
+  $("askBtn").disabled = true; $("askBtn").textContent = "…";
   try {
     const r = await fetch(`${API_BASE}/answer`, {
       method: "POST", headers: headers({ "Content-Type": "application/json" }),
       body: JSON.stringify({ catalog: currentCatalog, question })
     });
-    if (r.status === 401) { openGate(); return; }
+    if (r.status === 401) { pendingAction = () => $("askForm").onsubmit(e); openGate(); return; }
     const data = await r.json();
-    if (data.error && !(data.hits || []).length) { ans.innerHTML = `<div class="err">${esc(data.error)}</div>`; return; }
-    renderAnswer(data);
-    await loadPdf(data.pdf_proxy_path, data.hits || []);
-  } catch (err) { ans.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+    const hits = data.hits || [];
+    if (data.error && !hits.length) { showAnswerStrip(null, data); return; }
+    showAnswerStrip(hits[0] || null, data);
+    await loadDoc(data.pdf_proxy_path, hits, data);
+  } catch (err) {
+    $("docStatus") && ($("docStatus").textContent = err.message);
+  } finally {
+    $("askBtn").disabled = false; $("askBtn").textContent = "Ask";
+  }
 };
 
-function renderAnswer(data) {
-  const hits = data.hits || [];
-  const openBtn = data.open_full_ifu_url
-    ? `<a class="openIfu" href="${esc(data.open_full_ifu_url)}" target="_blank" rel="noopener">Open full official IFU ↗</a>` : "";
-  let html = `<div style="font-weight:700">${esc(data.document_title || "Official IFU")}</div>
-    <div class="muted" style="font-size:.82rem;margin-bottom:6px">${openBtn}</div>`;
-  if (!hits.length) { html += '<p class="muted">No matching passage found in this IFU.</p>'; }
-  html += hits.map((h, i) => `
-    <div class="hitCard">
-      <div class="pg">Page ${esc(h.page)}</div>
-      <div class="sec">${esc(h.section || "Relevant passage")}</div>
-      <div class="snip">${esc(h.snippet)}</div>
-      <button class="jump" data-page="${esc(h.page)}" data-i="${i}">Jump to page ${esc(h.page)}</button>
-    </div>`).join("");
-  const ans = document.getElementById("answer");
-  ans.innerHTML = html;
-  ans.querySelectorAll(".jump").forEach(b =>
-    b.onclick = () => scrollToPage(parseInt(b.dataset.page, 10)));
+function showAnswerStrip(hit, data) {
+  const strip = $("answerStrip");
+  strip.className = "answerStrip show";
+  if (hit) {
+    $("answerPg").textContent = "P." + hit.page;
+    $("answerSec").textContent = hit.section || "Relevant passage";
+  } else {
+    $("answerPg").textContent = "—";
+    $("answerSec").textContent = "No matching passage found in this IFU.";
+  }
+  $("answerDoc").textContent = data && data.document_title ? "· " + data.document_title : "";
+  const open = $("answerOpen");
+  if (data && data.open_full_ifu_url) { open.href = data.open_full_ifu_url; open.style.display = ""; }
+  else open.style.display = "none";
 }
 
-async function loadPdf(proxyPath, hits) {
-  viewerEl.innerHTML = '<div class="empty-hint loader">Loading official document…</div>';
-  pageDivs = {};
+async function loadDoc(proxyPath, hits, data) {
+  // Same document already rendered? Just repaint highlights + jump.
+  if (proxyPath === loadedProxyPath && pdfDoc) {
+    clearHighlights();
+    for (const h of hits) await highlightOnPage(h.page, h.snippet);
+    if (hits.length) scrollToHighlight(hits[0].page);
+    return;
+  }
+  docEl.innerHTML = '<div class="docStatus" id="docStatus">Loading the official IFU…</div>';
+  pageDivs = {}; loadedProxyPath = proxyPath;
+  let doc;
   try {
-    const task = pdfjsLib.getDocument({ url: API_BASE + proxyPath, httpHeaders: headers() });
-    pdfDoc = await task.promise;
-  } catch (err) { viewerEl.innerHTML = `<div class="empty-hint err">Could not load PDF: ${esc(err.message)}</div>`; return; }
-  viewerEl.innerHTML = "";
-  const scale = 1.4;
+    doc = await pdfjsLib.getDocument({ url: API_BASE + proxyPath, httpHeaders: headers() }).promise;
+  } catch (err) {
+    docEl.innerHTML = `<div class="docStatus err">Could not load the IFU: ${esc(err.message)}</div>`;
+    loadedProxyPath = null; return;
+  }
+  pdfDoc = doc;
+  docEl.innerHTML = "";
+  // Scale each page up to (nearly) the reader width for large, readable text.
+  const avail = Math.min(docEl.clientWidth - 40, 1100);
   for (let n = 1; n <= pdfDoc.numPages; n++) {
     const page = await pdfDoc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.max(1.1, Math.min(avail / base.width, 2.4));
     const viewport = page.getViewport({ scale });
     const wrap = document.createElement("div");
-    wrap.className = "pageWrap"; wrap.style.width = viewport.width + "px"; wrap.style.height = viewport.height + "px";
+    wrap.className = "pageWrap";
+    wrap.style.width = viewport.width + "px"; wrap.style.height = viewport.height + "px";
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width; canvas.height = viewport.height;
     const hlLayer = document.createElement("div"); hlLayer.className = "hlLayer";
     wrap.appendChild(canvas); wrap.appendChild(hlLayer);
-    viewerEl.appendChild(wrap);
+    docEl.appendChild(wrap);
     pageDivs[n] = { wrap, hlLayer, viewport, page };
     await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
   }
-  // Paint highlights for each hit, then scroll to the first.
   for (const h of hits) await highlightOnPage(h.page, h.snippet);
-  if (hits.length) scrollToPage(hits[0].page);
+  if (hits.length) scrollToHighlight(hits[0].page);
 }
 
-function scrollToPage(n) {
+function clearHighlights() {
+  Object.values(pageDivs).forEach(pd => { if (pd.hlLayer) pd.hlLayer.innerHTML = ""; });
+}
+// Center the actual highlighted passage in the viewport (not just the page top),
+// so the yellow answer is immediately visible.
+function scrollToHighlight(n) {
   const pd = pageDivs[n];
-  if (pd) pd.wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!pd) return;
+  const hl = pd.hlLayer.querySelector(".hl");
+  if (hl) hl.scrollIntoView({ behavior: "smooth", block: "center" });
+  else pd.wrap.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// Highlight the snippet text by overlaying yellow rects on the matching
-// text items (whitespace-insensitive cross-span matching).
+// Overlay yellow rects on the text items matching the snippet (whitespace-insensitive).
 async function highlightOnPage(pageNum, snippet) {
   const pd = pageDivs[pageNum];
   if (!pd) return;
   const tc = await pd.page.getTextContent();
   const items = tc.items.filter(it => it.str && it.str.trim().length);
-  // Build normalized concatenation with per-item char ranges.
   let norm = ""; const ranges = [];
   for (const it of items) {
     const s = it.str.replace(/\s+/g, " ");
-    const start = norm.length;
-    norm += s + " ";
+    const start = norm.length; norm += s + " ";
     ranges.push({ it, start, end: norm.length });
   }
   const target = snippet.replace(/\s+/g, " ").trim().toLowerCase();
   const hay = norm.toLowerCase();
   let idx = hay.indexOf(target);
-  if (idx < 0) {                              // fall back to a distinctive head of the snippet
+  if (idx < 0) {
     const head = target.slice(0, Math.min(40, target.length));
     idx = hay.indexOf(head);
     if (idx < 0) return;
   }
   const end = idx + target.length;
   for (const r of ranges) {
-    if (r.end <= idx || r.start >= end) continue;   // no overlap
+    if (r.end <= idx || r.start >= end) continue;
     drawHl(pd, r.it);
   }
 }
-
 function drawHl(pd, item) {
   const vt = pdfjsLib.Util.transform(pd.viewport.transform, item.transform);
   const x = vt[4], baseY = vt[5];
@@ -309,17 +453,13 @@ function drawHl(pd, item) {
   const w = item.width * pd.viewport.scale;
   const div = document.createElement("div");
   div.className = "hl";
-  div.style.left = x + "px";
-  div.style.top = (baseY - h) + "px";
-  div.style.width = w + "px";
-  div.style.height = (h * 1.15) + "px";
+  div.style.left = x + "px"; div.style.top = (baseY - h) + "px";
+  div.style.width = w + "px"; div.style.height = (h * 1.15) + "px";
   pd.hlLayer.appendChild(div);
 }
 
-function esc(s) {
-  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
+// Boot
+showLanding();
 </script>
 </body>
 </html>
