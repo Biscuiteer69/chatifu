@@ -344,12 +344,18 @@ def create_app() -> FastAPI:
         result, considered = _best_answer_across_documents(catalog, question, _get_answerer())
         actual_document_url = result.document_url or result.pdf_url
         open_full_ifu_url = result.open_full_ifu_url or actual_document_url
-        # The chosen document may not be the top-ranked one, so pin the PDF proxy
-        # to the document the hits actually came from — otherwise PDF.js would
-        # highlight page N of a different IFU.
+        # Pin the PDF proxy to the document the hits actually came from — otherwise
+        # PDF.js would highlight page N of a different IFU. Use result.source_url
+        # (the URL the answerer was handed == the SERVABLE/stored document_url that
+        # /ifu/pdf validates against), NOT result.document_url — the latter is the
+        # *resolved* PDF link (e.g. e-ifu's fetchPdf endpoint) whose path differs
+        # from the stored viewpdf-iframe URL, so /ifu/pdf would 400 it. Only pin
+        # when servable docs exist (considered non-empty); otherwise the answer came
+        # from an on-demand resolve and /ifu/pdf must resolve the URL itself.
+        proxy_document_url = result.source_url or actual_document_url
         pdf_proxy_path = f"/ifu/pdf?catalog={urllib.parse.quote(catalog)}"
-        if actual_document_url:
-            pdf_proxy_path += f"&document_url={urllib.parse.quote(actual_document_url, safe='')}"
+        if proxy_document_url and considered:
+            pdf_proxy_path += f"&document_url={urllib.parse.quote(proxy_document_url, safe='')}"
         payload = {
             "catalog": catalog,
             "document_title": result.document_title,
