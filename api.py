@@ -98,6 +98,21 @@ def _log_request(record: dict[str, Any]) -> None:
         pass  # logging must never break a request
 
 
+def _log_event(name: str, record: dict[str, Any]) -> None:
+    """Append a timestamped JSONL event to logs/<name>.jsonl (misses, feedback).
+
+    Beta signal capture: a search that finds no device tells us what coverage to
+    scrape next; a thumbs-down tells us where a highlight was wrong. Fail-soft.
+    """
+    try:
+        path = REQUEST_LOG.parent / f"{name}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as fh:
+            fh.write(json.dumps({"ts": time.time(), **record}) + "\n")
+    except Exception:
+        pass
+
+
 def _request_stats(window_s: int = 86400) -> dict[str, Any]:
     """Summarize the last window of the request log for /stats."""
     if not REQUEST_LOG.exists():
@@ -206,6 +221,15 @@ class AnswerRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
 
 
+class FeedbackRequest(BaseModel):
+    catalog: str = Field(min_length=1, max_length=120)
+    question: str = Field(default="", max_length=2000)
+    document_title: str = Field(default="", max_length=500)
+    hit_page: int | None = Field(default=None, ge=0, le=100000)
+    verdict: str = Field(pattern="^(up|down)$")
+    note: str = Field(default="", max_length=2000)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="ChatIFU Vault API", version="0.3.0")
     app.add_middleware(
@@ -265,6 +289,9 @@ def create_app() -> FastAPI:
         _: None = Depends(require_beta_access),
     ) -> dict[str, Any]:
         devices = search_devices(q, limit=limit)
+        if not devices:
+            # No device matched — a coverage/search miss worth prioritising.
+            _log_event("misses", {"kind": "no_device", "q": q})
         return {"query": q, "count": len(devices), "devices": devices}
 
     @app.get("/device/lookup")
@@ -377,7 +404,28 @@ def create_app() -> FastAPI:
         }
         if not result.error and result.hits:
             _answer_cache_put(cache_key, payload)
+        if result.error or not result.hits:
+            # We had the device+IFU but couldn't surface a passage (or the fetch
+            # failed): a quality miss distinct from a coverage miss.
+            _log_event("misses", {
+                "kind": "no_answer", "catalog": catalog, "question": question,
+                "document_title": result.document_title, "error": result.error,
+            })
         return {**payload, "cached": False}
+
+    @app.post("/feedback")
+    def feedback(body: FeedbackRequest, _: None = Depends(require_beta_access)) -> dict[str, Any]:
+        """Beta trust signal: was the highlighted answer right? Logged to
+        logs/feedback.jsonl to drive the accuracy/coverage improvement loop."""
+        _log_event("feedback", {
+            "catalog": body.catalog,
+            "question": body.question,
+            "document_title": body.document_title,
+            "hit_page": body.hit_page,
+            "verdict": body.verdict,          # "up" | "down"
+            "note": body.note,
+        })
+        return {"ok": True}
 
     # ------------------------------------------------------------------
     # AI-summary endpoints (bearer token) — secondary to the highlight flow

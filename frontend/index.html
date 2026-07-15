@@ -114,6 +114,21 @@
   .answerStrip .txt { flex: 1; min-width: 0; }
   .answerStrip .sec { font-weight: 700; }
   .answerStrip a.open { color: var(--brand); font-weight: 700; text-decoration: none; white-space: nowrap; }
+  .fb { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .fbbtn {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px;
+    font-size: .95rem; line-height: 1; filter: grayscale(.3); transition: transform .1s ease;
+  }
+  .fbbtn:hover { background: #f4f7fb; border-color: #cdd8e6; filter: none; transform: translateY(-1px); }
+  .fbbtn:disabled { opacity: .5; }
+  .fbmsg { font-size: .8rem; color: var(--muted); }
+  .coverGap {
+    max-width: 560px; margin: 60px auto; text-align: center; color: var(--muted);
+    background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 40px 32px;
+    box-shadow: 0 6px 24px rgba(13,27,42,.06);
+  }
+  .coverGap h3 { margin: 0 0 8px; color: var(--brand); font-family: var(--font-serif); font-weight: 600; }
+  .coverGap p { margin: 0; }
 
   .doc {
     flex: 1 1 auto; overflow: auto; background: var(--doc-bg); padding: 28px 16px 60px; scroll-behavior: smooth;
@@ -177,6 +192,11 @@
     <span class="pg" id="answerPg">P.—</span>
     <div class="txt"><span class="sec" id="answerSec"></span> <span id="answerDoc" class="muted"></span></div>
     <a class="open" id="answerOpen" href="#" target="_blank" rel="noopener" style="display:none">Open full official IFU ↗</a>
+    <div class="fb" id="answerFb">
+      <button class="fbbtn" id="fbUp" title="This answer was correct">👍</button>
+      <button class="fbbtn" id="fbDown" title="Report a problem with this answer">👎</button>
+      <span class="fbmsg" id="fbMsg"></span>
+    </div>
   </div>
   <div class="doc" id="doc">
     <div class="docStatus" id="docStatus">Loading the official IFU…</div>
@@ -310,6 +330,8 @@ let currentDevice = null;
 let pdfDoc = null;
 let pageDivs = {};           // page number -> {wrap, hlLayer, viewport, page}
 let loadedProxyPath = null;  // which document is currently rendered
+let currentQuestion = "";
+let lastAnswer = null;       // last /answer payload, for feedback context
 const docEl = $("doc");
 
 function pickDevice(d) {
@@ -321,8 +343,9 @@ function pickDevice(d) {
   $("askQ").value = "";
   $("answerStrip").className = "answerStrip";
   $("askQ").placeholder = `Ask about ${d.brand_name || currentCatalog} — contraindications, MRI safety, sterilization…`;
+  resetFeedback();
   // Show the device's default IFU immediately so it can be read/scrolled.
-  loadDoc(`/ifu/pdf?catalog=${encodeURIComponent(currentCatalog)}`, [], null);
+  loadDoc(`/ifu/pdf?catalog=${encodeURIComponent(currentCatalog)}`, [], null, true);
   setTimeout(() => $("askQ").focus(), 60);
 }
 
@@ -331,6 +354,8 @@ $("askForm").onsubmit = async (e) => {
   e.preventDefault();
   const question = $("askQ").value.trim();
   if (!question || !currentCatalog) return;
+  currentQuestion = question;
+  resetFeedback();
   $("askBtn").disabled = true; $("askBtn").textContent = "…";
   try {
     const r = await fetch(`${API_BASE}/answer`, {
@@ -339,6 +364,12 @@ $("askForm").onsubmit = async (e) => {
     });
     if (r.status === 401) { pendingAction = () => $("askForm").onsubmit(e); openGate(); return; }
     const data = await r.json();
+    if (!r.ok) {  // e.g. this device has no servable IFU (404/502)
+      showCoverageGap(data && data.detail);
+      showAnswerStrip(null, { document_title: "" });
+      return;
+    }
+    lastAnswer = data;
     const hits = data.hits || [];
     if (data.error && !hits.length) { showAnswerStrip(null, data); return; }
     showAnswerStrip(hits[0] || null, data);
@@ -349,6 +380,38 @@ $("askForm").onsubmit = async (e) => {
     $("askBtn").disabled = false; $("askBtn").textContent = "Ask";
   }
 };
+
+// --- Feedback (beta trust signal) -----------------------------------------
+function resetFeedback() {
+  $("fbMsg").textContent = "";
+  $("fbUp").disabled = false; $("fbDown").disabled = false;
+}
+async function sendFeedback(verdict) {
+  let note = "";
+  if (verdict === "down") {
+    note = (window.prompt("What was wrong? (optional — helps us fix it)") || "").slice(0, 2000);
+  }
+  $("fbUp").disabled = true; $("fbDown").disabled = true;
+  $("fbMsg").textContent = "Sending…";
+  try {
+    await fetch(`${API_BASE}/feedback`, {
+      method: "POST", headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        catalog: currentCatalog,
+        question: currentQuestion,
+        document_title: (lastAnswer && lastAnswer.document_title) || "",
+        hit_page: (lastAnswer && (lastAnswer.hits || [])[0] && lastAnswer.hits[0].page) || null,
+        verdict, note,
+      }),
+    });
+    $("fbMsg").textContent = verdict === "up" ? "Thanks!" : "Thanks — we'll review it.";
+  } catch (err) {
+    $("fbMsg").textContent = "Couldn't send feedback.";
+    $("fbUp").disabled = false; $("fbDown").disabled = false;
+  }
+}
+$("fbUp").onclick = () => sendFeedback("up");
+$("fbDown").onclick = () => sendFeedback("down");
 
 function showAnswerStrip(hit, data) {
   const strip = $("answerStrip");
@@ -366,7 +429,16 @@ function showAnswerStrip(hit, data) {
   else open.style.display = "none";
 }
 
-async function loadDoc(proxyPath, hits, data) {
+function showCoverageGap(detail) {
+  docEl.innerHTML = `<div class="coverGap">
+    <h3>No official IFU on file yet</h3>
+    <p>We haven't indexed the manufacturer's Instructions for Use for this device yet —
+    our coverage is expanding daily. Try another device, or check back soon.</p>
+  </div>`;
+  loadedProxyPath = null;
+}
+
+async function loadDoc(proxyPath, hits, data, isDefault = false) {
   // Same document already rendered? Just repaint highlights + jump.
   if (proxyPath === loadedProxyPath && pdfDoc) {
     clearHighlights();
@@ -380,7 +452,9 @@ async function loadDoc(proxyPath, hits, data) {
   try {
     doc = await pdfjsLib.getDocument({ url: API_BASE + proxyPath, httpHeaders: headers() }).promise;
   } catch (err) {
-    docEl.innerHTML = `<div class="docStatus err">Could not load the IFU: ${esc(err.message)}</div>`;
+    // A device with no indexed IFU is a coverage gap, not an error — say so kindly.
+    if (isDefault) showCoverageGap();
+    else docEl.innerHTML = `<div class="docStatus err">Could not load the IFU: ${esc(err.message)}</div>`;
     loadedProxyPath = null; return;
   }
   pdfDoc = doc;
