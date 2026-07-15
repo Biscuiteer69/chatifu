@@ -69,6 +69,16 @@ _WARNING_TERMS = frozenset({
 _PAGE_LIMIT = 150
 _APPENDIX_PAGES = 30
 
+# Words that appear on nearly every IFU page and so cannot, on their own, mean a
+# page answers a section-specific question. Used as a relevance floor: a query
+# that names a section ("indications", "contraindications") must match a term
+# BEYOND these before the keyword-fallback pass will return the page.
+_GENERIC_QUERY_TERMS = frozenset({
+    "device", "devices", "product", "products", "item", "items", "unit", "units",
+    "system", "systems", "model", "models", "component", "components",
+    "use", "used", "using", "instructions", "ifu", "information", "document",
+})
+
 ParsedPage = str | tuple[int, str]
 
 
@@ -615,6 +625,12 @@ def search_pages(
 
     unique_terms = list(dict.fromkeys(terms))
     min_coverage = max(1, (len(unique_terms) + 1) // 2) if target_sections else 1
+    # Relevance floor: for a query that names a specific section, a page matching
+    # only generic words ("device", "system") is not an answer. Require at least
+    # one DISTINCTIVE (non-generic) term, so when the section truly isn't in the
+    # document we return nothing — a "not covered" beats a confident wrong hit.
+    distinctive = ([t for t in unique_terms if t not in _GENERIC_QUERY_TERMS]
+                   if target_sections else [])
 
     scored_hits: list[tuple[int, int, int, AnswerHit]] = []
     for i, page in enumerate(pages):
@@ -626,6 +642,8 @@ def search_pages(
         low = text.lower()
         if not any(t in low for t in terms):
             continue
+        if distinctive and not any(t in low for t in distinctive):
+            continue  # generic-only match on a section-intent query -> skip
         coverage = sum(1 for t in unique_terms if t in low)
         if coverage < min_coverage:
             continue
@@ -743,7 +761,18 @@ QUESTION_SECTION_MAP: dict[str, list[str]] = {
                            "MAGNETIC RESONANCE", "MAGNETIC RESONANCE IMAGING"],
     "indication":         ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
     "indications":        ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    # Natural phrasings of "what is this for" — these were missing, so questions
+    # like "what is this device indicated for?" skipped the section pass entirely
+    # and returned a generic keyword match (device -> any page).
+    "indicated for":      ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    "indicated":          ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
     "intended use":       ["INTENDED USE", "INDICATIONS FOR USE", "INDICATIONS"],
+    "intended for":       ["INTENDED USE", "INDICATIONS FOR USE", "INDICATIONS"],
+    "intended to":        ["INTENDED USE", "INDICATIONS FOR USE", "INDICATIONS"],
+    "used for":           ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    "used to":            ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    "what is it for":     ["INDICATIONS", "INDICATIONS FOR USE", "INTENDED USE"],
+    "purpose":            ["INTENDED USE", "INDICATIONS", "INDICATIONS FOR USE"],
     "cleaning":           ["CLEANING", "CLEANING AND STERILIZATION", "REPROCESSING"],
     "steriliz":           ["STERILIZATION", "CLEANING AND STERILIZATION", "REPROCESSING"],
     "adverse":            ["ADVERSE EVENTS", "ADVERSE EFFECTS", "COMPLICATIONS"],
@@ -934,10 +963,16 @@ def _find_storage_passage(pages: list[ParsedPage]) -> list[AnswerHit]:
 
 
 def _section_name_matches(heading: str, target: str) -> bool:
-    """True when a detected heading name corresponds to a target section."""
+    """True when a detected heading name corresponds to a target section.
+
+    Uses WORD-BOUNDARY containment, not raw substring: "CONTRAINDICATIONS"
+    literally contains "INDICATIONS", so a bare `in` test made an indications
+    query match a contraindications heading (and vice-versa). \\b keeps
+    "WARNINGS" matching "WARNINGS AND PRECAUTIONS" while rejecting that overlap.
+    """
     h = heading.upper().strip()
     t = target.upper().strip()
-    if t in h or h in t:
+    if re.search(rf"\b{re.escape(t)}\b", h) or re.search(rf"\b{re.escape(h)}\b", t):
         return True
     fill = {"AND", "FOR", "OF", "THE", "IN", "TO", "A", "AN", "WITH", "OR"}
     t_words = set(t.split()) - fill
