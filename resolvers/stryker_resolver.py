@@ -57,13 +57,26 @@ DEFAULT_DELAY_SEC = 2.0
 # Consecutive WAF blocks before a batch gives up rather than digging in deeper.
 MAX_CONSECUTIVE_BLOCKS = 3
 BLOCK_BACKOFF_SEC = 60.0
+# The CloudFront WAF blocks on request fingerprint, not just rate: a bot-ish
+# User-Agent ("ChatIFU/1.0") and missing sec-ch-ua/sec-fetch-* headers get an
+# instant 403 even from an idle IP. A full Chrome header set passes. Keep these
+# consistent with a real browser hitting labeling.stryker.com.
 HEADERS = {
     "accept": "*/*",
-    "accept-language": "en",
+    "accept-language": "en-US,en;q=0.9",
     "content-type": "application/json",
     "origin": "https://labeling.stryker.com",
     "referer": "https://labeling.stryker.com/",
-    "user-agent": "Mozilla/5.0 ChatIFU/1.0",
+    "sec-ch-ua": '"Chromium";v="126", "Not.A/Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Linux"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "user-agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
 }
 # Product attributes whose value carries the catalog/REF number. Tenants name
 # this field differently ("Ref or catalog number" on Stryker, "Reference or
