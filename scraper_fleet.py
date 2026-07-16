@@ -60,27 +60,27 @@ TARGETS: dict[str, dict] = {
     #     request FINGERPRINT (bot UA + missing sec-ch-ua/sec-fetch-*), not rate;
     #     a real Chrome header set (stryker_resolver.HEADERS) returns 200. Each
     #     device is ~6-11s (2-3 API calls at 2s+jitter), so keep batches modest. ---
-    # THROTTLED HARD (2026-07-15): serving Stryker/Zimmer re-mints presigned URLs
-    # through the SAME Qarad WAF these scrape, so aggressive scraping rate-bans the
-    # IP and breaks serving (compliance keeps PDF caching off — CHATIFU_CACHE_PDFS=0).
-    # Tiny batches + hour-long gaps + a long WAF backoff keep Qarad traffic near-zero
-    # so the rate-ban lifts and serve-time re-mint stays healthy. Slow by design.
+    # MODERATE (2026-07-16, caching ON): PDF caching is enabled (CHATIFU_CACHE_PDFS=1),
+    # so serving reads cached bytes and no longer depends on serve-time Qarad re-mint —
+    # scraping and serving are decoupled. Still self-limiting on the Qarad WAF: a burst
+    # then a gap, with a 4h max_backoff so a rate-ban self-heals (goes quiet -> lifts ->
+    # resumes) instead of hammering. As the scraper resolves docs it caches their bytes,
+    # so coverage becomes servable as it grows.
     #
-    # OLD FAST CONFIG (revert here if PDF caching is ever enabled / serving is
-    # decoupled from Qarad): batch 60, sleep_between 30, idle_sleep 12*3600,
-    # batch_timeout 3600, no max_backoff (defaulted 1800).
+    # OLD FAST CONFIG (banned the IP): batch 60, sleep_between 30, no max_backoff.
+    # HARD-THROTTLE CONFIG (ban-lift, caching off): batch 8, sleep_between 3600.
     "stryker": {
         "enabled": True,
-        "cmd": [PY, "-m", "resolvers.stryker_resolver", "--batch", "8"],
+        "cmd": [PY, "-m", "resolvers.stryker_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Stryker devices"),
-        "sleep_between": 3600, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
-        "max_backoff": 4 * 3600,   # a WAF hit backs off up to 4h so Qarad goes quiet
+        "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,   # a WAF hit backs off up to 4h so the ban self-heals
     },
     "zimmer_biomet": {
         "enabled": True,
-        "cmd": [PY, "-m", "resolvers.zimmer_resolver", "--batch", "8"],
+        "cmd": [PY, "-m", "resolvers.zimmer_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Zimmer Biomet devices"),
-        "sleep_between": 3600, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
+        "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
     # abbott_resolver has no --batch mode (single --catalog only); needs a batch wrapper first.
