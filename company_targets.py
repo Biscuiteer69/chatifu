@@ -198,6 +198,17 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "company_patterns": ["%fresenius%"],
         "revenue": "~$5-6B",
     },
+    {
+        # Added on request 2026-07-16. Private (~$4-4.5B); a major sports-medicine /
+        # arthroscopy / orthobiologics maker. Its SKUs were NOT in the original GUDID
+        # seed — loaded separately via import_accessgudid.py --target arthrex.
+        "rank": 19,
+        "key": "arthrex",
+        "name": "Arthrex",
+        "adapter": "planned",
+        "company_patterns": ["%arthrex%"],
+        "revenue": "~$4-4.5B (private)",
+    },
 ]
 
 
