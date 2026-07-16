@@ -48,6 +48,12 @@ TARGETS: dict[str, dict] = {
         "idle_sleep": 6 * 3600,    # backlog dry -> re-check every 6h (new GUDID devices, retries)
         "batch_timeout": 3600,     # kill a wedged batch after 1h
     },
+    "abbott": {
+        "enabled": True, "rank": 5,
+        "cmd": [PY, "-m", "resolvers.abbott_resolver", "--batch", "40"],
+        "batch_re": re.compile(r"Resolving (\d+) Abbott devices"),  # header count
+        "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+    },
     "edwards": {
         "enabled": True, "rank": 13,
         "cmd": [PY, "-m", "resolvers.edwards_resolver", "--limit", "150"],

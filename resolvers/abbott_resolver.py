@@ -564,10 +564,39 @@ def upsert_outcome_row(
             )
 
 
+def load_abbott_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqlite3.Row]:
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute(
+            """
+            select d.rowid, d.company_name, d.brand_name, d.model_number,
+                   d.catalog_number, d.raw_json
+            from devices d
+            where d.catalog_number is not null
+              and trim(d.catalog_number) != ''
+              and (lower(d.company_name) like '%abbott%'
+                   or lower(d.company_name) like '%st. jude%'
+                   or lower(d.company_name) like '%st jude%')
+              and not exists (
+                select 1 from ifu_links l
+                where l.catalog_number = d.catalog_number
+                  and l.status in ('found', 'candidate_broad', 'not_found')
+              )
+            order by d.catalog_number
+            limit ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Resolve Abbott eIFU metadata by catalog number.")
-    parser.add_argument("--catalog", required=True, help="Catalog number to look up.")
+    parser.add_argument("--catalog", help="Catalog number to look up.")
     parser.add_argument("--model", help="Optional model number override.")
+    parser.add_argument("--batch", type=int, help="Resolve N unresolved Abbott devices.")
     parser.add_argument("--db", default=str(SQLITE_PATH), help="SQLite database path.")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of human text.")
     return parser.parse_args(argv)
@@ -575,6 +604,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.batch:
+        rows = load_abbott_devices(args.batch, db_path=args.db)
+        print(f"Resolving {len(rows)} Abbott devices")
+        resolver = AbbottResolver(db_path=args.db)
+        found = 0
+        for index, row in enumerate(rows, 1):
+            raw_json = json.loads(row["raw_json"]) if row["raw_json"] else {}
+            try:
+                documents = resolver.resolve(
+                    catalog_number=row["catalog_number"],
+                    model_number=row["model_number"],
+                    device_rowid=row["rowid"],
+                    primary_di=raw_json.get("PrimaryDI"),
+                )
+            except Exception as exc:  # noqa: BLE001 - one bad device must not sink the batch
+                print(f"[{index}/{len(rows)}] {row['catalog_number']}: error {exc}")
+                continue
+            if documents:
+                found += 1
+            if index % 25 == 0 or documents:
+                print(f"[{index}/{len(rows)}] {row['catalog_number']}: {len(documents)} docs (found {found})")
+        print(f"done: {found}/{len(rows)} devices resolved")
+        return 0
+
+    if not args.catalog:
+        raise SystemExit("catalog_number is required unless --batch is used.")
     documents = AbbottResolver(db_path=args.db).resolve(args.catalog, model_number=args.model)
     if args.json:
         print(json.dumps(documents, indent=2))
