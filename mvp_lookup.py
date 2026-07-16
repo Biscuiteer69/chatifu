@@ -59,6 +59,7 @@ def fetch_ifu_rows(catalog_number: str, db_path: str | Path = SQLITE_PATH) -> li
         if not columns:
             return []
         source_expr = "source_file_name" if "source_file_name" in columns else "NULL AS source_file_name"
+        family_expr = "manufacturer_family" if "manufacturer_family" in columns else "NULL AS manufacturer_family"
         rows = conn.execute(
             f"""
             SELECT
@@ -70,6 +71,7 @@ def fetch_ifu_rows(catalog_number: str, db_path: str | Path = SQLITE_PATH) -> li
                 language,
                 revision,
                 {source_expr},
+                {family_expr},
                 retrieved_at,
                 last_checked_at
             FROM ifu_links
@@ -423,9 +425,23 @@ def refresh_document_url(row: dict[str, Any], db_path: str | Path = SQLITE_PATH)
     if not catalog or not source_file_name:
         return url
 
-    from resolvers.stryker_resolver import StrykerResolver
+    # Re-mint with the resolver for THIS manufacturer's Qarad tenant. Both Stryker
+    # and Zimmer Biomet serve from the same S3 backend, but the presigned link is
+    # minted per tenant (selected by Origin / business unit), so using the Stryker
+    # resolver for a Zimmer doc finds nothing and the stored (expired) URL leaks
+    # through -> 403 at fetch time.
+    family = str(row.get("manufacturer_family") or "").lower()
+    if "zimmer" in family or "biomet" in family:
+        from resolvers.zimmer_resolver import ZimmerBiometResolver as _Resolver
+    else:
+        from resolvers.stryker_resolver import StrykerResolver as _Resolver
 
-    fresh = StrykerResolver(db_path=db_path).fresh_document_url(catalog, str(source_file_name))
+    try:
+        fresh = _Resolver(db_path=db_path).fresh_document_url(catalog, str(source_file_name))
+    except Exception:
+        # Re-mint can fail (WAF block, network): never let it crash a request.
+        # The stored URL will 403 at fetch, which the caller handles as a miss.
+        return url
     if not fresh:
         return url
     conn = db_connect(db_path)
