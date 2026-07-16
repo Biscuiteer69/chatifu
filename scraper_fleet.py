@@ -41,7 +41,7 @@ TZ = ZoneInfo("America/Denver")
 # ---------------------------------------------------------------------------
 TARGETS: dict[str, dict] = {
     "medtronic": {
-        "enabled": True,
+        "enabled": True, "rank": 1,
         "cmd": [PY, "-m", "resolvers.medtronic_resolver", "--batch", "300"],
         "batch_re": re.compile(r"Resolving (\d+) Medtronic devices"),  # header count
         "sleep_between": 10,       # gap between batches (on top of the resolver's own per-request delay)
@@ -49,7 +49,7 @@ TARGETS: dict[str, dict] = {
         "batch_timeout": 3600,     # kill a wedged batch after 1h
     },
     "edwards": {
-        "enabled": True,
+        "enabled": True, "rank": 13,
         "cmd": [PY, "-m", "resolvers.edwards_resolver", "--limit", "150"],
         "count_re": re.compile(r":\s*\d+\s*document"),  # one match per device attempted; 0 -> dry
         "sleep_between": 12,
@@ -70,14 +70,14 @@ TARGETS: dict[str, dict] = {
     # OLD FAST CONFIG (banned the IP): batch 60, sleep_between 30, no max_backoff.
     # HARD-THROTTLE CONFIG (ban-lift, caching off): batch 8, sleep_between 3600.
     "stryker": {
-        "enabled": True,
+        "enabled": True, "rank": 3,
         "cmd": [PY, "-m", "resolvers.stryker_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Stryker devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,   # a WAF hit backs off up to 4h so the ban self-heals
     },
     "zimmer_biomet": {
-        "enabled": True,
+        "enabled": True, "rank": 15,
         "cmd": [PY, "-m", "resolvers.zimmer_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Zimmer Biomet devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
@@ -96,6 +96,14 @@ WAF_SIGNS = ("waf blocked", "http 403", "http 429", "too many requests",
 STOP = threading.Event()
 _LOG_LOCK = threading.Lock()
 LOAD_CEILING = (os.cpu_count() or 8) * 0.85   # pause new batches above this 1-min load
+
+# Auto-advance pipeline: run at most this many scrapers at once, highest revenue
+# rank first. When a scraper's backlog goes dry it exits and frees a slot, and
+# the next-highest-rank incomplete target is promoted — so we always keep the
+# top companies working. A completed target is re-checked after DONE_RECHECK (new
+# GUDID devices / roster refreshes).
+MAX_ACTIVE = int(os.environ.get("CHATIFU_FLEET_MAX_ACTIVE", "6"))
+DONE_RECHECK = 24 * 3600
 
 
 def log(msg: str) -> None:
@@ -165,9 +173,8 @@ def run_target(key: str, cfg: dict) -> None:
         last = out.strip().splitlines()[-1] if out.strip() else "(no output)"
 
         if attempted == 0:
-            log(f"[{key}] backlog dry; idling {cfg['idle_sleep']}s")
-            STOP.wait(cfg["idle_sleep"])
-            continue
+            log(f"[{key}] backlog dry — target complete; freeing pipeline slot")
+            return  # supervisor promotes the next company; re-checks this one later
 
         log(f"[{key}] batch ok ({last})")
         STOP.wait(cfg["sleep_between"])
@@ -185,20 +192,43 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_stop)
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    enabled = [(k, c) for k, c in TARGETS.items() if c.get("enabled")]
-    log(f"fleet starting; enabled targets: {[k for k, _ in enabled]} (load ceiling {LOAD_CEILING:.1f})")
+    # Priority order = revenue rank (lower rank number first).
+    enabled = sorted(
+        (k for k, c in TARGETS.items() if c.get("enabled")),
+        key=lambda k: TARGETS[k].get("rank", 999),
+    )
+    log(f"pipeline starting; MAX_ACTIVE={MAX_ACTIVE}, load ceiling {LOAD_CEILING:.1f}; "
+        f"queue by rank: {enabled}")
 
-    threads: list[threading.Thread] = []
-    for key, cfg in enabled:
-        t = threading.Thread(target=run_target, args=(key, cfg), name=key, daemon=True)
-        t.start()
-        threads.append(t)
-        time.sleep(3)  # stagger worker starts
+    active: dict[str, threading.Thread] = {}
+    done_at: dict[str, float] = {}   # target -> monotonic time it last went dry
 
-    while not STOP.is_set() and any(t.is_alive() for t in threads):
-        STOP.wait(5)
+    def promote() -> None:
+        for key in enabled:                       # already rank-sorted
+            if len(active) >= MAX_ACTIVE:
+                break
+            if key in active:
+                continue
+            if key in done_at and (time.monotonic() - done_at[key]) < DONE_RECHECK:
+                continue                           # completed recently; re-check later
+            t = threading.Thread(target=run_target, args=(key, TARGETS[key]), name=key, daemon=True)
+            active[key] = t
+            t.start()
+            log(f"[{key}] promoted to active ({len(active)}/{MAX_ACTIVE} slots)")
+            time.sleep(3)                          # stagger starts
+
+    promote()
+    while not STOP.is_set():
+        for key, t in list(active.items()):
+            if not t.is_alive():
+                done_at[key] = time.monotonic()    # dry or crashed -> free the slot
+                del active[key]
+        if not STOP.is_set():
+            promote()
+        STOP.wait(15)
+
     STOP.set()
-    for t in threads:
+    for t in list(active.values()):
         t.join(timeout=10)
     log("fleet stopped")
 
