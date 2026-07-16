@@ -54,6 +54,12 @@ TARGETS: dict[str, dict] = {
         "batch_re": re.compile(r"Resolving (\d+) Abbott devices"),  # header count
         "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
     },
+    "boston_scientific": {
+        "enabled": True, "rank": 9,
+        "cmd": [PY, "-m", "resolvers.boston_resolver", "--batch", "100"],
+        "batch_re": re.compile(r"Resolving (\d+) Boston Scientific devices"),
+        "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+    },
     "edwards": {
         "enabled": True, "rank": 13,
         "cmd": [PY, "-m", "resolvers.edwards_resolver", "--limit", "150"],
