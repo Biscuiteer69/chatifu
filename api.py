@@ -166,7 +166,10 @@ def _get_answerer() -> IFUAnswerer:
     if _answerer is None:
         with _stack_lock:
             if _answerer is None:
-                _answerer = IFUAnswerer()
+                # Share the disk PDF cache so presigned S3 docs (Stryker/Zimmer)
+                # can serve from cached bytes instead of a WAF-limited re-mint.
+                # _get_ifu_cache() is None when CHATIFU_CACHE_PDFS=0 -> live fetch.
+                _answerer = IFUAnswerer(document_cache=_get_ifu_cache())
     return _answerer
 
 

@@ -226,7 +226,21 @@ class IFUAnswerer:
 
     def _fetch_pdf_bytes_locked(self, document_url: str) -> tuple[bytes, str | None, str | None]:
         if _is_direct_pdf_url(document_url):
+            # Cache presigned S3 PDFs (Stryker/Zimmer) by their STABLE object path
+            # (signature stripped), so a cached copy serves even after the link
+            # expires — no serve-time Qarad re-mint, which is WAF-rate-limited.
+            parts = urllib.parse.urlsplit(document_url)
+            cache_key = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+            if self._document_cache is not None:
+                cached = self._document_cache.get(cache_key)
+                if cached is not None:
+                    return cached, document_url, _title_from_url(document_url)
             pdf_bytes, final_pdf_url = self._http_bytes_with_url(document_url)
+            if self._document_cache is not None and pdf_bytes[:5] == b"%PDF-":
+                try:
+                    self._document_cache.put(cache_key, pdf_bytes)
+                except Exception:
+                    pass
             return pdf_bytes, final_pdf_url or document_url, _title_from_url(final_pdf_url or document_url)
 
         self._ensure_session()

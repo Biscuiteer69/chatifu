@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 import sqlite3
@@ -186,6 +187,32 @@ class StrykerResolver:
         self._last_request_at = 0.0
         self._business_units: dict[str, int] | None = None
         self._product_types: dict[int, dict[str, int]] = {}
+        self._byte_cache: Any = None
+
+    def _maybe_cache_pdf(self, signed_url: str) -> None:
+        """When PDF caching is enabled (CHATIFU_CACHE_PDFS), download the doc now
+        — the presigned URL is valid at scrape time — and store the bytes keyed by
+        the stable object path, so the serving layer can serve from cache instead
+        of a WAF-rate-limited Qarad re-mint. Best-effort; never breaks a resolve."""
+        if os.environ.get("CHATIFU_CACHE_PDFS", "0") not in ("1", "true", "True"):
+            return
+        try:
+            if self._byte_cache is None:
+                from ifu_cache import IFUDocumentCache
+                self._byte_cache = IFUDocumentCache()
+            key = strip_presigned_query(signed_url)
+            if self._byte_cache.get(key) is not None:
+                return  # already cached
+            req = urllib.request.Request(
+                signed_url,
+                headers={"user-agent": self.headers["user-agent"], "accept": "application/pdf,*/*"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = resp.read()
+            if data[:5] == b"%PDF-":
+                self._byte_cache.put(key, data)
+        except Exception:
+            pass
 
     # -- HTTP ---------------------------------------------------------------
 
@@ -277,6 +304,7 @@ class StrykerResolver:
             url = file_info.get("documentUrl")
             if not url:
                 continue
+            self._maybe_cache_pdf(str(url))  # gated by CHATIFU_CACHE_PDFS; no-op when off
             documents.append({
                 # Store the S3 object path WITHOUT the presigned query. The
                 # signature rotates on every resolve, so storing the full URL
