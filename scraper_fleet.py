@@ -60,6 +60,12 @@ TARGETS: dict[str, dict] = {
         "batch_re": re.compile(r"Resolving (\d+) Boston Scientific devices"),
         "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
     },
+    "b_braun": {
+        "enabled": True, "rank": 17,
+        "cmd": [PY, "-m", "resolvers.bbraun_resolver", "--batch", "80"],
+        "batch_re": re.compile(r"Resolving (\d+) B. Braun devices"),
+        "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+    },
     "edwards": {
         "enabled": True, "rank": 13,
         "cmd": [PY, "-m", "resolvers.edwards_resolver", "--limit", "150"],
@@ -114,7 +120,7 @@ LOAD_CEILING = (os.cpu_count() or 8) * 0.85   # pause new batches above this 1-m
 # the next-highest-rank incomplete target is promoted — so we always keep the
 # top companies working. A completed target is re-checked after DONE_RECHECK (new
 # GUDID devices / roster refreshes).
-MAX_ACTIVE = int(os.environ.get("CHATIFU_FLEET_MAX_ACTIVE", "6"))
+MAX_ACTIVE = int(os.environ.get("CHATIFU_FLEET_MAX_ACTIVE", "8"))
 DONE_RECHECK = 24 * 3600
 
 
