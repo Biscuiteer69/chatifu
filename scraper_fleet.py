@@ -60,17 +60,28 @@ TARGETS: dict[str, dict] = {
     #     request FINGERPRINT (bot UA + missing sec-ch-ua/sec-fetch-*), not rate;
     #     a real Chrome header set (stryker_resolver.HEADERS) returns 200. Each
     #     device is ~6-11s (2-3 API calls at 2s+jitter), so keep batches modest. ---
+    # THROTTLED HARD (2026-07-15): serving Stryker/Zimmer re-mints presigned URLs
+    # through the SAME Qarad WAF these scrape, so aggressive scraping rate-bans the
+    # IP and breaks serving (compliance keeps PDF caching off — CHATIFU_CACHE_PDFS=0).
+    # Tiny batches + hour-long gaps + a long WAF backoff keep Qarad traffic near-zero
+    # so the rate-ban lifts and serve-time re-mint stays healthy. Slow by design.
+    #
+    # OLD FAST CONFIG (revert here if PDF caching is ever enabled / serving is
+    # decoupled from Qarad): batch 60, sleep_between 30, idle_sleep 12*3600,
+    # batch_timeout 3600, no max_backoff (defaulted 1800).
     "stryker": {
         "enabled": True,
-        "cmd": [PY, "-m", "resolvers.stryker_resolver", "--batch", "60"],
+        "cmd": [PY, "-m", "resolvers.stryker_resolver", "--batch", "8"],
         "batch_re": re.compile(r"Resolving (\d+) Stryker devices"),
-        "sleep_between": 30, "idle_sleep": 12 * 3600, "batch_timeout": 3600,
+        "sleep_between": 3600, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
+        "max_backoff": 4 * 3600,   # a WAF hit backs off up to 4h so Qarad goes quiet
     },
     "zimmer_biomet": {
         "enabled": True,
-        "cmd": [PY, "-m", "resolvers.zimmer_resolver", "--batch", "60"],
+        "cmd": [PY, "-m", "resolvers.zimmer_resolver", "--batch", "8"],
         "batch_re": re.compile(r"Resolving (\d+) Zimmer Biomet devices"),
-        "sleep_between": 30, "idle_sleep": 12 * 3600, "batch_timeout": 3600,
+        "sleep_between": 3600, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
+        "max_backoff": 4 * 3600,
     },
     # abbott_resolver has no --batch mode (single --catalog only); needs a batch wrapper first.
 }
@@ -118,12 +129,12 @@ def run_target(key: str, cfg: dict) -> None:
         except subprocess.TimeoutExpired:
             log(f"[{key}] batch timed out (>{cfg['batch_timeout']}s); backoff {backoff}s")
             STOP.wait(backoff)
-            backoff = min(backoff * 2, 1800)
+            backoff = min(backoff * 2, cfg.get("max_backoff", 1800))
             continue
         except Exception as exc:  # noqa: BLE001
             log(f"[{key}] batch error: {exc}; backoff {backoff}s")
             STOP.wait(backoff)
-            backoff = min(backoff * 2, 1800)
+            backoff = min(backoff * 2, cfg.get("max_backoff", 1800))
             continue
 
         # A shutdown SIGTERM kills the in-flight batch (returncode -15); that's
@@ -139,7 +150,7 @@ def run_target(key: str, cfg: dict) -> None:
             reason = "WAF/rate-limit" if waf else f"exit={proc.returncode}"
             log(f"[{key}] batch flagged ({reason}); backoff {backoff}s. tail: {out.strip()[-200:]}")
             STOP.wait(backoff)
-            backoff = min(backoff * 2, 1800)
+            backoff = min(backoff * 2, cfg.get("max_backoff", 1800))
             continue
 
         backoff = 30  # healthy batch -> reset backoff
