@@ -60,6 +60,12 @@ TARGETS: dict[str, dict] = {
         "batch_re": re.compile(r"Resolving (\d+) Boston Scientific devices"),
         "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
     },
+    "fresenius_kabi": {
+        "enabled": True, "rank": 23,
+        "cmd": [PY, "-m", "resolvers.fresenius_kabi_resolver", "--batch", "30"],
+        "batch_re": re.compile(r"Resolving (\d+) Fresenius Kabi devices"),
+        "sleep_between": 20, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
+    },
     "b_braun": {
         "enabled": True, "rank": 17,
         "cmd": [PY, "-m", "resolvers.bbraun_resolver", "--batch", "80"],
