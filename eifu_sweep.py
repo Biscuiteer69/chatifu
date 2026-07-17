@@ -40,13 +40,31 @@ _DEDICATED_PATTERNS = (
 )
 
 
+def _has_coverage_targets(conn: sqlite3.Connection) -> bool:
+    """True once the sizing sweep has confirmed some e-ifu-covered companies."""
+    try:
+        row = conn.execute(
+            "select count(*) from eifu_company_coverage where covered=1"
+        ).fetchone()
+        return bool(row and row[0] > 0)
+    except sqlite3.OperationalError:
+        return False
+
+
 def load_sweep_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqlite3.Row]:
     conn = sqlite3.connect(db_path, timeout=60.0)
     conn.row_factory = sqlite3.Row
     excl = " AND ".join(["lower(company_name) NOT LIKE ?"] * len(_DEDICATED_PATTERNS))
     try:
+        # Once the sizing sweep has run, TARGET only the confirmed-covered
+        # companies — no wasted requests on makers we know aren't on e-ifu.com.
+        # Before then, fall back to a random long-tail sample.
+        covered_filter = (
+            "and company_name in (select company from eifu_company_coverage where covered=1)"
+            if _has_coverage_targets(conn) else ""
+        )
         # RANDOM order spreads requests across many companies rather than
-        # hammering one giant catalog (Cardinal/Medline) first.
+        # hammering one giant catalog first.
         return conn.execute(
             f"""
             select d.rowid, d.company_name, d.brand_name, d.model_number,
@@ -54,6 +72,7 @@ def load_sweep_devices(limit: int, db_path: str | Path = SQLITE_PATH) -> list[sq
             from devices d
             where d.catalog_number is not null and trim(d.catalog_number) != ''
               and {excl}
+              {covered_filter}
               and not exists (
                 select 1 from ifu_links l
                 where l.catalog_number = d.catalog_number
