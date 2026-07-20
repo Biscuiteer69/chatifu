@@ -159,6 +159,11 @@ def _request_stats(window_s: int = 86400) -> dict[str, Any]:
 _answerer: IFUAnswerer | None = None
 _ifu_cache: IFUDocumentCache | None = None
 _stack_lock = threading.Lock()
+# Separate lock for the cache singleton: _get_answerer() builds the answerer while
+# holding _stack_lock and calls _get_ifu_cache() inside it. A shared non-reentrant lock
+# self-deadlocks there (hung every /answer whenever CHATIFU_CACHE_PDFS=1), so the cache
+# initializer must use its own lock.
+_cache_lock = threading.Lock()
 
 
 def _get_answerer() -> IFUAnswerer:
@@ -179,7 +184,7 @@ def _get_ifu_cache() -> IFUDocumentCache | None:
     if not CACHE_PDFS:
         return None
     if _ifu_cache is None:
-        with _stack_lock:
+        with _cache_lock:
             if _ifu_cache is None:
                 _ifu_cache = IFUDocumentCache()
     return _ifu_cache
