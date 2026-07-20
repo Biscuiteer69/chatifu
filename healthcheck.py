@@ -18,23 +18,34 @@ from urllib import error, parse
 
 CF_EDGE = "104.21.4.12"  # any Cloudflare anycast IP for the zone
 FUMBL_ENV = Path("/home/biscuited/projects/fumbl_dgx_scratch/.env")
+CHATIFU_ENV = Path("/home/biscuited/projects/chatifu_vault/.env")
 SERVICES = (
     "chatifu-vault-api", "chatifu-frontend", "chatifu-qdrant",
     "cloudflared-chatifu", "chatifu-scraper-fleet",
 )
+
+# Answer-path canary: a known-good catalog+question that must return hits fast. This catches the
+# failure class that /healthz can't — the service is "up" but /answer hangs or returns empty (e.g.
+# the cache-init self-deadlock that silently killed every answer once caching was enabled). Override
+# via env if this device's IFU ever changes. Timeout is short on purpose: a hang must trip it, and a
+# healthy answer is sub-second cached / a few seconds cold.
+ANSWER_CATALOG = os.getenv("CHATIFU_HEALTH_ANSWER_CATALOG", "2150014")  # Medtronic Divergence-L
+ANSWER_QUESTION = os.getenv("CHATIFU_HEALTH_ANSWER_QUESTION", "What are the contraindications?")
+ANSWER_TIMEOUT = int(os.getenv("CHATIFU_HEALTH_ANSWER_TIMEOUT", "25"))
 
 
 def _env(name: str, default: str = "") -> str:
     val = os.getenv(name)
     if val:
         return val
-    try:
-        for line in FUMBL_ENV.read_text().splitlines():
-            line = line.strip()
-            if line.startswith(f"{name}="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except Exception:
-        pass
+    for env_file in (FUMBL_ENV, CHATIFU_ENV):
+        try:
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith(f"{name}="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
     return default
 
 
@@ -86,6 +97,33 @@ def check_public(name: str, host: str, path: str) -> tuple[str, bool, str]:
         return name, False, str(exc)[:80]
 
 
+def check_answer() -> tuple[str, bool, str]:
+    """Smoke-test the actual /answer path (local): a known-good catalog+question must return hits
+    within ANSWER_TIMEOUT. Fails on a hang (the deadlock class), a non-200, empty hits, or bad JSON —
+    none of which /healthz would catch."""
+    code = _env("CHATIFU_BETA_CODES", "").split(",")[0].strip()
+    if not code:
+        return "answer_smoke", False, "no beta code available to test /answer"
+    body = json.dumps({"catalog": ANSWER_CATALOG, "question": ANSWER_QUESTION}).encode()
+    req = urllib.request.Request(
+        "http://127.0.0.1:8123/answer", data=body, method="POST",
+        headers={"content-type": "application/json", "x-beta-code": code},
+    )
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=ANSWER_TIMEOUT) as resp:
+            elapsed = time.time() - t0
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+        hits = payload.get("hits") or []
+        if not hits:
+            return "answer_smoke", False, f"200 but 0 hits in {elapsed:.1f}s (catalog {ANSWER_CATALOG})"
+        return "answer_smoke", True, f"{len(hits)} hits in {elapsed:.2f}s"
+    except error.HTTPError as exc:
+        return "answer_smoke", False, f"HTTP {exc.code}"
+    except Exception as exc:  # noqa: BLE001 - a socket timeout here == the hang we're watching for
+        return "answer_smoke", False, f"{type(exc).__name__}: {str(exc)[:60]} (>{ANSWER_TIMEOUT}s = hang?)"
+
+
 def check_service(svc: str) -> tuple[str, bool, str]:
     try:
         out = subprocess.run(["systemctl", "--user", "is-active", f"{svc}.service"],
@@ -103,6 +141,7 @@ def main() -> int:
         check_http("qdrant_local", "http://127.0.0.1:6333/readyz"),
         check_public("api_public", "api.chatifu.com", "/healthz"),
         check_public("site_public", "chatifu.com", "/"),
+        check_answer(),  # the actual product path — catches "up but answers hang/empty"
         *[check_service(s) for s in SERVICES],
     ]
     failures = [(n, d) for n, ok, d in results if not ok]
