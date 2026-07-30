@@ -107,7 +107,34 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
-    # abbott_resolver has no --batch mode (single --catalog only); needs a batch wrapper first.
+    # --- e-ifu.com targets. UNLIKE every other target, these two share ONE host
+    #     (and one WAF budget) with each other, so the per-site isolation the rest
+    #     of the fleet relies on does NOT hold here. Their combined request rate is
+    #     what matters, not each one's. EifuResolver enforces its own 2s/request
+    #     floor on top of these gaps.
+    #
+    #     Cadence is copied from the Stryker/Zimmer config that has been running at
+    #     zero WAF flags — batch 25-30 against a ~300-420s gap. Do not raise either
+    #     without watching `grep "WAF/rate-limit" logs/scraper_fleet.log` for 24h
+    #     first; the fast config is what got the IP banned last time.
+    "jnj": {
+        "enabled": True, "rank": 2,
+        "cmd": [PY, "-m", "resolvers.eifu_resolver", "--test-jnj", "30"],
+        "batch_re": re.compile(r"Testing (\d+) J&J-family devices"),
+        "sleep_between": 420, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
+    # The long-tail sweep: one engine over every e-ifu-covered maker we have no
+    # dedicated resolver for (Alcon, Philips, BD, Olympus...). Left DISABLED until
+    # jnj has run a full day clean — switching both on at once would double the load
+    # on the shared WAF with no way to tell which one caused a block.
+    "eifu_sweep": {
+        "enabled": False, "rank": 21,
+        "cmd": [PY, str(VAULT / "eifu_sweep.py"), "--batch", "25"],
+        "batch_re": re.compile(r"Resolving (\d+) e-ifu devices"),
+        "sleep_between": 600, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
 }
 
 # WAF / rate-limit fingerprints in a batch's output -> back off hard.
