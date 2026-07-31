@@ -5,9 +5,12 @@ Design goals:
   * Politeness first. Each manufacturer's resolver already rate-limits itself
     (e.g. Medtronic sleeps 1.5s/request). The fleet adds an inter-batch gap and
     exponential backoff on any WAF/error signal, so we never hammer a site.
-  * Per-site isolation. One worker per target, each hitting a DIFFERENT host, so
-    they run concurrently without affecting each other's rate limits. One
-    target crashing or getting blocked never sinks the others.
+  * Per-HOST isolation. Targets run concurrently, but several share a backend
+    (Stryker+Zimmer on Qarad, jnj+eifu_sweep on e-ifu.com), so concurrency is
+    capped per host via HOST_LIMITS — not per target. One target crashing or
+    getting blocked never sinks the others. A target queued behind a busy host
+    starts automatically when a same-host slot frees, which is how the e-ifu
+    long-tail sweep hands over from jnj with no scheduling logic.
   * Don't crash the box. A load-average ceiling pauses new batches if the DGX is
     busy; batches run one-at-a-time per target (never a fan-out storm). SQLite is
     WAL + busy-timeout, so concurrent writers wait rather than fail.
@@ -41,7 +44,7 @@ TZ = ZoneInfo("America/Denver")
 # ---------------------------------------------------------------------------
 TARGETS: dict[str, dict] = {
     "medtronic": {
-        "enabled": True, "rank": 1,
+        "enabled": True, "rank": 1, "host": "manuals.medtronic.com",
         "cmd": [PY, "-m", "resolvers.medtronic_resolver", "--batch", "300"],
         "batch_re": re.compile(r"Resolving (\d+) Medtronic devices"),  # header count
         "sleep_between": 10,       # gap between batches (on top of the resolver's own per-request delay)
@@ -49,31 +52,31 @@ TARGETS: dict[str, dict] = {
         "batch_timeout": 3600,     # kill a wedged batch after 1h
     },
     "abbott": {
-        "enabled": True, "rank": 5,
+        "enabled": True, "rank": 5, "host": "services.abbott",
         "cmd": [PY, "-m", "resolvers.abbott_resolver", "--batch", "40"],
         "batch_re": re.compile(r"Resolving (\d+) Abbott devices"),  # header count
         "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
     },
     "boston_scientific": {
-        "enabled": True, "rank": 9,
+        "enabled": True, "rank": 9, "host": "coveo/bostonscientific",
         "cmd": [PY, "-m", "resolvers.boston_resolver", "--batch", "100"],
         "batch_re": re.compile(r"Resolving (\d+) Boston Scientific devices"),
         "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
     },
     "fresenius_kabi": {
-        "enabled": True, "rank": 23,
+        "enabled": True, "rank": 23, "host": "eifu.fresenius-kabi.com",
         "cmd": [PY, "-m", "resolvers.fresenius_kabi_resolver", "--batch", "30"],
         "batch_re": re.compile(r"Resolving (\d+) Fresenius Kabi devices"),
         "sleep_between": 20, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
     },
     "b_braun": {
-        "enabled": True, "rank": 17,
+        "enabled": True, "rank": 17, "host": "aesculapusaifus.com",
         "cmd": [PY, "-m", "resolvers.bbraun_resolver", "--batch", "80"],
         "batch_re": re.compile(r"Resolving (\d+) B. Braun devices"),
         "sleep_between": 15, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
     },
     "edwards": {
-        "enabled": True, "rank": 13,
+        "enabled": True, "rank": 13, "host": "edwards",
         "cmd": [PY, "-m", "resolvers.edwards_resolver", "--limit", "150"],
         "count_re": re.compile(r":\s*\d+\s*document"),  # one match per device attempted; 0 -> dry
         "sleep_between": 12,
@@ -94,14 +97,14 @@ TARGETS: dict[str, dict] = {
     # OLD FAST CONFIG (banned the IP): batch 60, sleep_between 30, no max_backoff.
     # HARD-THROTTLE CONFIG (ban-lift, caching off): batch 8, sleep_between 3600.
     "stryker": {
-        "enabled": True, "rank": 3,
+        "enabled": True, "rank": 3, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.stryker_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Stryker devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,   # a WAF hit backs off up to 4h so the ban self-heals
     },
     "zimmer_biomet": {
-        "enabled": True, "rank": 15,
+        "enabled": True, "rank": 15, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.zimmer_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Zimmer Biomet devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
@@ -118,18 +121,20 @@ TARGETS: dict[str, dict] = {
     #     without watching `grep "WAF/rate-limit" logs/scraper_fleet.log` for 24h
     #     first; the fast config is what got the IP banned last time.
     "jnj": {
-        "enabled": True, "rank": 2,
+        "enabled": True, "rank": 2, "host": "e-ifu.com",
         "cmd": [PY, "-m", "resolvers.eifu_resolver", "--test-jnj", "30"],
         "batch_re": re.compile(r"Testing (\d+) J&J-family devices"),
         "sleep_between": 420, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
     # The long-tail sweep: one engine over every e-ifu-covered maker we have no
-    # dedicated resolver for (Alcon, Philips, BD, Olympus...). Left DISABLED until
-    # jnj has run a full day clean — switching both on at once would double the load
-    # on the shared WAF with no way to tell which one caused a block.
+    # dedicated resolver for (Alcon 6,287 / BD 10,666 / Philips 3,737 / Olympus 1,314
+    # — 22,823 catalogs reachable with no new code). Enabled, but the e-ifu HOST_LIMIT
+    # of 1 keeps it queued behind jnj and starts it automatically the moment jnj's
+    # backlog goes dry. That's the handover: no scheduler, no manual flip, and the two
+    # can never share the WAF budget.
     "eifu_sweep": {
-        "enabled": False, "rank": 21,
+        "enabled": True, "rank": 21, "host": "e-ifu.com",
         "cmd": [PY, str(VAULT / "eifu_sweep.py"), "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) e-ifu devices"),
         "sleep_between": 600, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
@@ -155,6 +160,19 @@ LOAD_CEILING = (os.cpu_count() or 8) * 0.85   # pause new batches above this 1-m
 # GUDID devices / roster refreshes).
 MAX_ACTIVE = int(os.environ.get("CHATIFU_FLEET_MAX_ACTIVE", "8"))
 DONE_RECHECK = 24 * 3600
+
+# How many workers may hit ONE host at once. The fleet's per-target isolation only
+# buys anything when targets sit on different hosts, and several no longer do:
+# Stryker + Zimmer share Qarad, and jnj + eifu_sweep share e-ifu.com. Without this
+# cap, promoting a second target onto a busy host silently doubles the request rate
+# against a WAF that has already banned this IP once.
+#
+# The numbers are what has been OBSERVED safe, not guesses: qarad has run two
+# workers at zero WAF flags since 2026-07-29, so 2. e-ifu is unproven at any
+# concurrency, so 1 — which also makes the sweep start automatically the moment
+# jnj drains, with no scheduling logic of its own.
+HOST_LIMITS = {"qarad": 2}
+DEFAULT_HOST_LIMIT = 1
 
 
 def log(msg: str) -> None:
@@ -262,6 +280,10 @@ def main() -> None:
                 continue
             if key in done_at and (time.monotonic() - done_at[key]) < DONE_RECHECK:
                 continue                           # completed recently; re-check later
+            host = TARGETS[key].get("host", key)
+            limit = HOST_LIMITS.get(host, DEFAULT_HOST_LIMIT)
+            if sum(1 for k in active if TARGETS[k].get("host", k) == host) >= limit:
+                continue   # host at capacity; this target waits for a same-host slot
             t = threading.Thread(target=run_target, args=(key, TARGETS[key]), name=key, daemon=True)
             active[key] = t
             t.start()
