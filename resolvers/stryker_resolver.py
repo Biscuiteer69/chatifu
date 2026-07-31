@@ -90,13 +90,14 @@ REF_ATTRIBUTE_NAMES = (
     "product ref",       # Arthrex
     "ref",
 )
-# Tenants on this platform name the IFU document group differently — Stryker uses "Instructions
-# For Use", Arthrex uses "Directions For Use" (DFU). Matching only the former silently returned
-# zero documents for products that plainly had one, which is indistinguishable from "not
-# published". Match the synonyms instead.
+# Tenants name the IFU document group differently and the differences are trivial but fatal:
+# Stryker "Instructions For Use", Arthrex "Directions For Use", Baxter "Instruction for Use"
+# (singular). Each mismatch silently returned zero documents for products that plainly had one,
+# which is indistinguishable from "not published" — so match on the STEM rather than on exact
+# phrases, and let a new tenant's wording variant work without another round of debugging.
 IFU_GROUP_TERMS = (
-    "instructions for use",
-    "directions for use",
+    "instruction",   # instruction(s) for use
+    "direction",     # direction(s) for use
     "ifu",
     "dfu",
 )
@@ -297,9 +298,12 @@ class StrykerResolver:
         if pt_id is None:
             return [], None
 
+        # `country` is optional for some tenants and MANDATORY for others — Baxter 404s the
+        # detail route without it, which looks like a missing product rather than a missing
+        # parameter. Always send it; tenants that ignore it are unaffected.
         product = self._request(
             f"{BASE_URL}/business-units/{bu_id}/product-types/{pt_id}"
-            f"/products/{item.get('id')}?audience=HCP"
+            f"/products/{item.get('id')}?audience=HCP&country={self.country}"
         )
         files: list[dict[str, Any]] = []
         for group in product.get("documentTypes") or []:

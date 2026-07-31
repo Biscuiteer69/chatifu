@@ -110,6 +110,33 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
+    # More Qarad tenants, all driven by the shared resolvers/qarad_tenants.py table rather than a
+    # module each. They rank ABOVE Zimmer, which is deliberate: their backlogs are small (~6k) so
+    # they drain quickly and hand the host slot back, whereas Stryker and Zimmer would otherwise
+    # hold both slots for weeks and starve them entirely.
+    "baxter": {
+        "enabled": True, "rank": 12, "host": "qarad",
+        "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "baxter", "--batch", "25"],
+        "batch_re": re.compile(r"Resolving (\d+) Baxter devices"),
+        "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
+    "alcon": {
+        "enabled": True, "rank": 20, "host": "qarad",
+        "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "alcon", "--batch", "20"],
+        "batch_re": re.compile(r"Resolving (\d+) Alcon devices"),
+        # Smaller batch: Alcon spans 13 business units, so a miss costs several requests
+        # while the resolver hunts for the right one.
+        "sleep_between": 360, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
+    "coopersurgical": {
+        "enabled": True, "rank": 30, "host": "qarad",
+        "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "coopersurgical", "--batch", "25"],
+        "batch_re": re.compile(r"Resolving (\d+) CooperSurgical devices"),
+        "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
     # Arthrex is a third Qarad tenant (edfu.arthrex.com — "edfu", not "ifu"). Registered on the
     # SAME host key as Stryker/Zimmer so HOST_LIMITS caps their combined concurrency at 2: the
     # third waits for a slot rather than adding load to a WAF that has banned this IP before.
