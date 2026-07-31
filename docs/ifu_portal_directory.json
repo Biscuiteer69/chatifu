@@ -1,0 +1,158 @@
+[
+  {
+    "name": "Stryker",
+    "portal": "https://labeling.stryker.com/hcp/US"
+  },
+  {
+    "name": "Zimmer Biomet",
+    "portal": "https://labeling.zimmerbiomet.com/"
+  },
+  {
+    "name": "DePuy Synthes (J&J MedTech)",
+    "portal": "https://ifu.depuysynthes.com/"
+  },
+  {
+    "name": "Smith+Nephew",
+    "portal": "https://ifu.smith-nephew.com/"
+  },
+  {
+    "name": "Arthrex",
+    "portal": "https://edfu.arthrex.com/"
+  },
+  {
+    "name": "Medtronic",
+    "portal": "https://manuals.medtronic.com/"
+  },
+  {
+    "name": "BD (Becton Dickinson)",
+    "portal": "https://eifu.bd.com/"
+  },
+  {
+    "name": "ZimVie",
+    "portal": "https://ifu.biomet3i.com/"
+  },
+  {
+    "name": "Avalign Technologies",
+    "portal": "https://www.avalign.com/ifu.php"
+  },
+  {
+    "name": "Intuitive Surgical",
+    "portal": "https://manuals.intuitivesurgical.com/"
+  },
+  {
+    "name": "Boston Scientific",
+    "portal": "https://www.bostonscientific.com/elabeling.html"
+  },
+  {
+    "name": "Olympus",
+    "portal": "https://medical.olympusamerica.com/"
+  },
+  {
+    "name": "KARL STORZ",
+    "portal": "https://www.karlstorz.com/us/en/eifu.htm"
+  },
+  {
+    "name": "B. Braun / Aesculap",
+    "portal": "https://eifu.bbraunusa.com/en-US"
+  },
+  {
+    "name": "Teleflex",
+    "portal": "https://ifu.teleflex.com/"
+  },
+  {
+    "name": "Integra LifeSciences",
+    "portal": "https://labeling.integralife.com/eifu/"
+  },
+  {
+    "name": "Edwards Lifesciences",
+    "portal": "https://eifu.edwards.com/eifu/"
+  },
+  {
+    "name": "CONMED",
+    "portal": "https://eifu.conmed.com/"
+  },
+  {
+    "name": "Cook Medical",
+    "portal": "https://ifu.cookmedical.com/"
+  },
+  {
+    "name": "STERIS",
+    "portal": "https://www.steris.com/healthcare/instructions-for-use"
+  },
+  {
+    "name": "Hologic",
+    "portal": "https://www.hologic.com/package-inserts"
+  },
+  {
+    "name": "CooperSurgical",
+    "portal": "https://ifu.coopersurgical.com/"
+  },
+  {
+    "name": "Getinge",
+    "portal": "https://eifu.getinge.com/"
+  },
+  {
+    "name": "Globus Medical (incl. NuVasive)",
+    "portal": "https://www.globusmedical.com/eifu/"
+  },
+  {
+    "name": "Enovis (DJO)",
+    "portal": "https://enovis.com/ifu"
+  },
+  {
+    "name": "AngioDynamics",
+    "portal": "https://ifu.angiodynamics.com/"
+  },
+  {
+    "name": "Abbott",
+    "portal": "https://vascular.eifu.abbott/en/index.html"
+  },
+  {
+    "name": "Philips",
+    "portal": "https://www.eifu.philips.com/"
+  },
+  {
+    "name": "Siemens Healthineers",
+    "portal": "https://www.siemens-healthineers.com/en-us/support-documentation/online-services/document-library"
+  },
+  {
+    "name": "Baxter",
+    "portal": "https://edocs.baxter.com/"
+  },
+  {
+    "name": "Medline",
+    "portal": "https://appportal.medline.com/MedlineIFU/"
+  },
+  {
+    "name": "Terumo",
+    "portal": "https://terumo.eifu.com/"
+  },
+  {
+    "name": "Coloplast",
+    "portal": "https://docshub.coloplast.com/ifus/"
+  },
+  {
+    "name": "Masimo",
+    "portal": "https://techdocs.masimo.com/"
+  },
+  {
+    "name": "Ethicon / J&J MedTech",
+    "portal": "https://www.e-ifu.com/"
+  },
+  {
+    "name": "Alphatec Spine (ATEC)",
+    "portal": "https://atecspine.com/eifu/"
+  },
+  {
+    "name": "Orthofix",
+    "portal": "https://orthofix.com/surgeon-resources/ifus/"
+  },
+  {
+    "name": "Alcon",
+    "portal": "https://ifu.alcon.com/"
+  },
+  {
+    "name": "Mindray North America",
+    "portal": "https://www.mindray.com/na/service-and-support/training-and-education/resource-library/technical-documents/operators-manuals/"
+  }
+]
