@@ -48,13 +48,34 @@ MODEL_KEYED = {"medtronic"}          # Medtronic publishes by model, not catalog
 WINDOW_HOURS = 6
 HOT_LOOP_BATCHES = 20                # batches in-window with zero writes = spinning
 
+# The hot-loop check compares a FLEET TARGET's batch count against ifu_links writes, but a target
+# key and the manufacturer_family it writes are not always the same string. Where they differ the
+# check saw zero writes and reported a hot loop for targets that were in fact the most productive
+# in the fleet — FDA had covered 857k catalogs when it was first accused of resolving nothing.
+# Map the exceptions; None means "cannot attribute writes to this target, skip the check".
+TARGET_FAMILY: dict[str, str | None] = {
+    "fda": "fda_510k",
+    "jnj": "johnson_and_johnson",
+    "eifu_sweep": None,   # sweeps many makers, writing each one's own family
+}
 
-def _remaining(conn: sqlite3.Connection) -> dict[str, int]:
-    """Distinct identifiers with no terminal ifu_links row, per company key."""
+
+def _remaining(conn: sqlite3.Connection, tier: str = "any") -> dict[str, int]:
+    """Distinct identifiers not yet covered at `tier`, per company key.
+
+    Two tiers, because conflating them would let us declare victory on documents that are not
+    IFUs:
+      "any"    — anything at all, including an FDA 510(k) summary. This is what the product can
+                 currently answer from.
+      "maker"  — a manufacturer-sourced result only. An FDA summary carries Indications for Use
+                 but no instructions, so this is the real IFU gap.
+    """
+    statuses = "'found','candidate_broad','not_found'"
+    extra = ",'fda_summary'" if tier == "any" else ""
     conn.execute("drop table if exists temp.done")
     conn.execute(
-        "create temp table done as select distinct catalog_number c from ifu_links "
-        "where status in ('found','candidate_broad','not_found')"
+        f"create temp table done as select distinct catalog_number c from ifu_links "
+        f"where status in ({statuses}{extra})"
     )
     conn.execute("create index temp.tmp_done on done(c)")
     out: dict[str, int] = {}
@@ -122,7 +143,10 @@ def _issues(conn: sqlite3.Connection, remaining: dict[str, int], prev: dict | No
         elif (m := re.search(r"\[(\w+)\] batch (?:error|timed out)", ln)):
             errors[m.group(1)] = errors.get(m.group(1), 0) + 1
     for target, n in batches.items():
-        if n >= HOT_LOOP_BATCHES and writes.get(target, 0) == 0:
+        family = TARGET_FAMILY.get(target, target)
+        if family is None:
+            continue
+        if n >= HOT_LOOP_BATCHES and writes.get(family, 0) == 0:
             issues.append(f"HOT LOOP: {target} ran {n} batches in {WINDOW_HOURS}h and resolved nothing")
     for target, n in errors.items():
         if n >= 5:
@@ -144,9 +168,11 @@ def main() -> int:
 
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=60.0)
     try:
-        remaining = _remaining(conn)
+        remaining = _remaining(conn, tier="any")
+        maker_only = _remaining(conn, tier="maker")
         active = sum(v for k, v in remaining.items() if k not in DISTRIBUTORS)
         distrib = sum(v for k, v in remaining.items() if k in DISTRIBUTORS)
+        maker_gap = sum(v for k, v in maker_only.items() if k not in DISTRIBUTORS)
         prev = json.loads(STATE.read_text()) if STATE.exists() else None
         issues = _issues(conn, remaining, prev)
     finally:
@@ -164,7 +190,8 @@ def main() -> int:
     top = sorted(((v, k) for k, v in remaining.items() if v > 0 and k not in DISTRIBUTORS), reverse=True)[:5]
     body = "\n".join([
         f"ChatIFU scrape goal — {now.strftime('%Y-%m-%d %H:%M')}Z",
-        f"device makers remaining: {active:,}",
+        f"no document at all:      {active:,}   (device makers)",
+        f"no MAKER IFU:            {maker_gap:,}   (FDA summary only counts here)",
         f"distributors (last):     {distrib:,}",
         rate_line,
         "top: " + ", ".join(f"{k} {v:,}" for v, k in top),
@@ -180,7 +207,7 @@ def main() -> int:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps({
         "at": now.isoformat(), "active": active, "distributors": distrib,
-        "remaining": remaining, "issues": issues,
+        "maker_gap": maker_gap, "remaining": remaining, "issues": issues,
     }, indent=2))
     return 1 if issues else 0
 
