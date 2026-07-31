@@ -87,7 +87,18 @@ REF_ATTRIBUTE_NAMES = (
     "reference or catalog number",
     "catalog number",
     "reference number",
+    "product ref",       # Arthrex
     "ref",
+)
+# Tenants on this platform name the IFU document group differently — Stryker uses "Instructions
+# For Use", Arthrex uses "Directions For Use" (DFU). Matching only the former silently returned
+# zero documents for products that plainly had one, which is indistinguishable from "not
+# published". Match the synonyms instead.
+IFU_GROUP_TERMS = (
+    "instructions for use",
+    "directions for use",
+    "ifu",
+    "dfu",
 )
 # Requests are staggered with jitter so a sweep does not look like a metronome
 # to the WAF, which blocks the whole client IP across every tenant.
@@ -172,6 +183,11 @@ class StrykerResolver:
     # Origin header, so a new manufacturer is a subclass, not a new resolver.
     ORIGIN = "https://labeling.stryker.com"
     SEARCH_BUSINESS_UNIT = 0  # tenants with isGlobalSearch=False need their own
+    # Product-type ids are per business unit, NOT global — Stryker's search lives under 1 but
+    # Arthrex's is 10 and BD's units differ again. Hardcoding 1 returns a bare 404 on any other
+    # tenant, which reads like "no results" rather than "wrong URL". Always confirm with
+    # product_types(bu_id) before adding a tenant.
+    SEARCH_PRODUCT_TYPE = 1
     FAMILY = MANUFACTURER_FAMILY
 
     def __init__(
@@ -254,7 +270,7 @@ class StrykerResolver:
         }
         data = self._request(
             f"{BASE_URL}/business-units/{self.SEARCH_BUSINESS_UNIT}"
-            f"/product-types/1/products?audience=HCP&page=0",
+            f"/product-types/{self.SEARCH_PRODUCT_TYPE}/products?audience=HCP&page=0",
             payload=payload,
         )
         return list(data.get("items") or [])
@@ -288,7 +304,7 @@ class StrykerResolver:
         files: list[dict[str, Any]] = []
         for group in product.get("documentTypes") or []:
             group_name = str(group.get("name") or "").lower()
-            if "instructions for use" not in group_name and "ifu" not in group_name:
+            if not any(term in group_name for term in IFU_GROUP_TERMS):
                 continue
             for document in group.get("documents") or []:
                 for file_info in document.get("files") or []:

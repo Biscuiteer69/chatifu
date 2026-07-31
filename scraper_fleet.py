@@ -110,6 +110,16 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
+    # Arthrex is a third Qarad tenant (edfu.arthrex.com — "edfu", not "ifu"). Registered on the
+    # SAME host key as Stryker/Zimmer so HOST_LIMITS caps their combined concurrency at 2: the
+    # third waits for a slot rather than adding load to a WAF that has banned this IP before.
+    "arthrex": {
+        "enabled": True, "rank": 19, "host": "qarad",
+        "cmd": [PY, "-m", "resolvers.arthrex_resolver", "--batch", "25"],
+        "batch_re": re.compile(r"Resolving (\d+) Arthrex devices"),
+        "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
     # --- e-ifu.com targets. UNLIKE every other target, these two share ONE host
     #     (and one WAF budget) with each other, so the per-site isolation the rest
     #     of the fleet relies on does NOT hold here. Their combined request rate is
@@ -126,6 +136,18 @@ TARGETS: dict[str, dict] = {
         "batch_re": re.compile(r"Testing (\d+) J&J-family devices"),
         "sleep_between": 420, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
+    },
+    # FDA premarket documents — not a manufacturer, a cross-cutting FALLBACK. One public .gov
+    # host, no WAF, no token, and enormous leverage: 36k documents blanket ~575k catalog numbers,
+    # so a batch of 60 requests can cover tens of thousands of devices. Ranked above every maker
+    # because it is the cheapest coverage available and unblocks companies with no portal at all.
+    # Writes a NON-terminal status, so each maker's own resolver still supersedes it later.
+    "fda": {
+        "enabled": True, "rank": 0, "host": "accessdata.fda.gov",
+        "cmd": [PY, "-m", "resolvers.fda_resolver", "--batch", "60"],
+        "batch_re": re.compile(r"Resolving (\d+) FDA submissions"),
+        "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 2400,
+        "max_backoff": 2 * 3600,
     },
     # The long-tail sweep: one engine over every e-ifu-covered maker we have no
     # dedicated resolver for (Alcon 6,287 / BD 10,666 / Philips 3,737 / Olympus 1,314
