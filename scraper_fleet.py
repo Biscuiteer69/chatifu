@@ -196,14 +196,18 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 2400,
         "max_backoff": 2 * 3600,
     },
-    # The long-tail sweep: one engine over every e-ifu-covered maker we have no
-    # dedicated resolver for (Alcon 6,287 / BD 10,666 / Philips 3,737 / Olympus 1,314
-    # — 22,823 catalogs reachable with no new code). Enabled, but the e-ifu HOST_LIMIT
-    # of 1 keeps it queued behind jnj and starts it automatically the moment jnj's
-    # backlog goes dry. That's the handover: no scheduler, no manual flip, and the two
-    # can never share the WAF budget.
+    # The long-tail sweep: one engine over every e-ifu-covered maker we have no dedicated
+    # resolver for (BD ~10,144 / Philips ~3,184 / Olympus ~1,125 and others).
+    #
+    # Ranked ABOVE jnj (was 21, now 1) on purpose, and it is the only place in this file where
+    # rank does not track revenue. The e-ifu HOST_LIMIT of 1 means these two take turns, so the
+    # ordering decides which waits days for the other. J&J has its own working resolver and a
+    # ~38k backlog it will get through regardless. The sweep is the ONLY remaining route for
+    # Philips, Olympus and BD's remainder — every other path for them is documented as a dead
+    # end in docs/unreachable_companies.md. Coverage that is otherwise unreachable outranks
+    # coverage that is merely slower to arrive.
     "eifu_sweep": {
-        "enabled": True, "rank": 21, "host": "e-ifu.com",
+        "enabled": True, "rank": 1, "host": "e-ifu.com",
         "cmd": [PY, str(VAULT / "eifu_sweep.py"), "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) e-ifu devices"),
         "sleep_between": 600, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
