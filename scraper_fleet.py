@@ -131,20 +131,22 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 60, "idle_sleep": 12 * 3600, "batch_timeout": 1800,
     },
     # More Qarad tenants, driven by the shared resolvers/qarad_tenants.py table rather than a
-    # module each. Every small tenant ranks ABOVE Zimmer (15) — shortest-job-first on the second
-    # host slot. This is not a preference, it is a fix: with only 2 qarad slots and Stryker +
-    # Zimmer holding both for weeks, Arthrex/Alcon/CooperSurgical had run ZERO batches since
-    # being added. Small backlogs drain in days and hand the slot back; Zimmer then gets it
-    # outright.
+    # module each. With only 2 qarad slots and Stryker holding one, the second rotates — and the
+    # rank order here IS that rotation, so it is set shortest-job-first by measured backlog:
+    #     coopersurgical 53 < baxter 577 < alcon 6,187 < arthrex 14,745 < zimmer 84,343
+    # SJF minimises average completion time: the small tenants finish and hand the slot back
+    # within hours, whereas leading with Arthrex would hold it for days while three companies
+    # that could already be DONE sat idle. All rank above Zimmer, without which they never ran
+    # at all — Arthrex, Alcon and CooperSurgical had zero batches until that was fixed.
     "baxter": {
-        "enabled": True, "rank": 12, "host": "qarad",
+        "enabled": True, "rank": 11, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "baxter", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Baxter devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
     "alcon": {
-        "enabled": True, "rank": 13, "host": "qarad",
+        "enabled": True, "rank": 12, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "alcon", "--batch", "20"],
         "batch_re": re.compile(r"Resolving (\d+) Alcon devices"),
         # Smaller batch: Alcon spans 13 business units, so a miss costs several requests
@@ -153,7 +155,7 @@ TARGETS: dict[str, dict] = {
         "max_backoff": 4 * 3600,
     },
     "coopersurgical": {
-        "enabled": True, "rank": 14, "host": "qarad",
+        "enabled": True, "rank": 10, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "coopersurgical", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) CooperSurgical devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
@@ -163,7 +165,7 @@ TARGETS: dict[str, dict] = {
     # SAME host key as Stryker/Zimmer so HOST_LIMITS caps their combined concurrency at 2: the
     # third waits for a slot rather than adding load to a WAF that has banned this IP before.
     "arthrex": {
-        "enabled": True, "rank": 11, "host": "qarad",
+        "enabled": True, "rank": 13, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.arthrex_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Arthrex devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
