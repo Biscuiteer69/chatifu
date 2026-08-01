@@ -58,6 +58,46 @@ TENANTS: dict[str, dict] = {
         "patterns": ["%coopersurgical%", "%cooper surgical%"],
         "label": "CooperSurgical",
     },
+    "bd": {
+        # NOT WIRED INTO THE FLEET — do not enable without fixing the cost model first.
+        #
+        # BD is a valid tenant and the ids below are all confirmed, but multi-unit search makes
+        # it uniquely expensive: a MISS costs one request per unit, so 13 units x a 25-device
+        # batch is ~325 requests against a WAF shared with Stryker, Zimmer, Arthrex, Baxter and
+        # Alcon. A 10-device test was rate-limited at device 8. Bounding the unit list would cap
+        # the cost but silently mark anything in the untried units as not_found — the exact
+        # false-negative failure that made Arthrex and Baxter look empty for months.
+        #
+        # The fix is to derive the unit from the device rather than search for it: BD's GUDID
+        # companies map to units (Bard Peripheral Vascular -> pit, Bard urology -> ucc, ...),
+        # which turns 13 requests into 1. That mapping needs deriving from resolved samples, not
+        # from more probing.
+        "origin": "https://eifu.bd.com",
+        # BD splits across ~16 business units, each with its own product-type ids, and each unit
+        # exposes general / lot / softwareversion — only "general" is the searchable catalogue.
+        # Ordered by expected GUDID footprint: BD's devices here are mostly Bard (peripheral
+        # intervention, urology & critical care, surgery) plus medication delivery/management.
+        # Order matters because a miss costs one request per unit until something answers, and
+        # the resolver promotes whichever unit hits.
+        # Country units (Vietnam/korea/indonesia/taiwan) are omitted — US catalogue only.
+        "units": [
+            (9, 71),    # pit      — peripheral intervention (Bard Peripheral Vascular)
+            (12, 75),   # ucc      — urology & critical care (Bard)
+            (11, 74),   # surgery
+            (7, 70),    # mds      — medication delivery
+            (8, 72),    # mms      — medication management
+            (6, 69),    # ids      — integrated diagnostic solutions
+            (3, 67),    # globalbd
+            (13, 76),   # idssm
+            (5, 68),    # Biosciences
+            (10, 73),   # pharma
+            (18, 83),   # APM
+            (20, 84),   # embecta
+            (0, 5),     # global   — confirmed working, but thin on its own (~3/8)
+        ],
+        "patterns": ["%becton%", "%bard%", "%c.r. bard%", "%carefusion%"],
+        "label": "BD",
+    },
     "alcon": {
         "origin": "https://ifu.alcon.com",
         # 13 units, each with its own product type (id = bu - 1). Ordered by expected volume:
