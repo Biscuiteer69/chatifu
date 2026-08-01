@@ -44,6 +44,35 @@ verified equipment owners. The diagnostics/imaging split in our subset is ~3,091
 has no IFU portal in `ifu_portal_directory.json`. These are commodity distribution SKUs (gloves,
 basins, tubing) that largely have no IFU in existence.
 
+## Philips — ~1,943 identifiers beyond the e-ifu sweep — NO DISCOVERY PATH
+
+Philips IFU PDFs are public and permanent once you have the URL: a known asset at
+`documents.philips.com/assets/Instruction%20for%20Use/<date>/<hash>.pdf?feed=ifu_docs_feed`
+fetches 200 / 2MB / valid PDF with no auth. The problem is purely discovery — the keys are
+opaque hashes and the `ifu_docs_feed` is not enumerable (every feed/sitemap/API path tried
+returns 404).
+
+The intended discovery portal, `acc.eifu.philips.com`, is broken for us: 500 to curl AND an
+empty page (blank title, blank body, zero XHR) in a real headless browser, so it is not simple
+bot-blocking. `eifu.philips.com` does not resolve at all.
+
+The e-ifu sweep already covers 3,184 of Philips' 5,127; the remainder has no route until that
+portal works.
+
+## Olympus — ~843 identifiers beyond the e-ifu sweep — REF NOT INDEXED
+
+US IFUs are behind **OlympusConnect.com**, a free but login-required customer portal.
+
+The public EU portal (`olympus.co.uk/medical/en/Contact-and-support/search_page.html`) is
+backed by a plain Solr REST endpoint — `olympus-europa.com/SolrRestService/select?query=<q>
+&locale=en-gb&fq=IN_SYNC_GROUP:medical` — which responds without auth and does return data
+(13 hits for "endoscope"). But its documents are WEB PAGE records (IN_NAME, IN_LINK,
+IN_DESCRIPTION, IN_HIERARCHY): it is a site search index, not an IFU catalogue, and it does not
+index product REFs. Real Olympus catalogs (e.g. N5367140) return numFound 0 for that reason,
+not because the devices are absent.
+
+The e-ifu sweep covers 1,125 of Olympus' 1,968.
+
 ## Intuitive Surgical — 9 identifiers — DISPROPORTIONATE
 
 `manuals.intuitivesurgical.com` exists and is not gated. Nine identifiers does not justify a
