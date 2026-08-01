@@ -130,10 +130,12 @@ TARGETS: dict[str, dict] = {
         "batch_re": re.compile(r"Resolving (\d+) Smith\+Nephew devices"),
         "sleep_between": 60, "idle_sleep": 12 * 3600, "batch_timeout": 1800,
     },
-    # More Qarad tenants, all driven by the shared resolvers/qarad_tenants.py table rather than a
-    # module each. They rank ABOVE Zimmer, which is deliberate: their backlogs are small (~6k) so
-    # they drain quickly and hand the host slot back, whereas Stryker and Zimmer would otherwise
-    # hold both slots for weeks and starve them entirely.
+    # More Qarad tenants, driven by the shared resolvers/qarad_tenants.py table rather than a
+    # module each. Every small tenant ranks ABOVE Zimmer (15) — shortest-job-first on the second
+    # host slot. This is not a preference, it is a fix: with only 2 qarad slots and Stryker +
+    # Zimmer holding both for weeks, Arthrex/Alcon/CooperSurgical had run ZERO batches since
+    # being added. Small backlogs drain in days and hand the slot back; Zimmer then gets it
+    # outright.
     "baxter": {
         "enabled": True, "rank": 12, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "baxter", "--batch", "25"],
@@ -142,7 +144,7 @@ TARGETS: dict[str, dict] = {
         "max_backoff": 4 * 3600,
     },
     "alcon": {
-        "enabled": True, "rank": 20, "host": "qarad",
+        "enabled": True, "rank": 13, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "alcon", "--batch", "20"],
         "batch_re": re.compile(r"Resolving (\d+) Alcon devices"),
         # Smaller batch: Alcon spans 13 business units, so a miss costs several requests
@@ -151,7 +153,7 @@ TARGETS: dict[str, dict] = {
         "max_backoff": 4 * 3600,
     },
     "coopersurgical": {
-        "enabled": True, "rank": 30, "host": "qarad",
+        "enabled": True, "rank": 14, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "coopersurgical", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) CooperSurgical devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
@@ -161,7 +163,7 @@ TARGETS: dict[str, dict] = {
     # SAME host key as Stryker/Zimmer so HOST_LIMITS caps their combined concurrency at 2: the
     # third waits for a slot rather than adding load to a WAF that has banned this IP before.
     "arthrex": {
-        "enabled": True, "rank": 19, "host": "qarad",
+        "enabled": True, "rank": 11, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.arthrex_resolver", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Arthrex devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,

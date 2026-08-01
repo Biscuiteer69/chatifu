@@ -159,7 +159,17 @@ def item_matches_catalog(item: dict[str, Any], catalog_number: str) -> bool:
     target = normalize_ref(catalog_number)
     if not target:
         return False
-    return any(normalize_ref(ref) == target for ref in refs_from_item(item))
+    if any(normalize_ref(ref) == target for ref in refs_from_item(item)):
+        return True
+    # Some tenants publish no REF attribute at all — Baxter's are "Product Name", "GTIN
+    # Primary", "GTIN Secondary" — so refs_from_item() comes back empty and every product is
+    # rejected however well it matched. Its keyCode IS the catalog number, and the platform
+    # treats keyCode as the product's primary identifier, so fall back to it. Only when there
+    # are no REFs to check: where a tenant does publish REFs, disagreeing with them still means
+    # the search returned a neighbour and the item must be rejected.
+    if not refs_from_item(item):
+        return normalize_ref(str(item.get("keyCode") or "")) == target
+    return False
 
 
 def ensure_source_file_name_column(db_path: str | Path) -> None:
