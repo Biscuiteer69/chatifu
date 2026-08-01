@@ -14,6 +14,11 @@ Alerts fire on the things that actually stall this goal:
                             trailing whitespace, the pending query compared untrimmed values, and
                             three targets re-hit their vendors every ~25s forever making no
                             progress. Batches-without-writes catches that whole class.
+  * zero yield            — a target writes rows but finds NOTHING, i.e. it is rejecting valid
+                            matches rather than facing an empty portal. Baxter wrote 577
+                            not_found and zero found this way. Distinct from a hot loop, which
+                            writes nothing at all, and more dangerous: every row is a permanent
+                            false negative that no later pass revisits.
   * WAF blocks            — rate-limit flags in the window; the cadence needs backing off
   * target erroring       — repeated batch failures on one target
 
@@ -47,6 +52,8 @@ DISTRIBUTORS = {"cardinal_health", "medline"}
 MODEL_KEYED = {"medtronic"}          # Medtronic publishes by model, not catalog
 WINDOW_HOURS = 6
 HOT_LOOP_BATCHES = 20                # batches in-window with zero writes = spinning
+ZERO_YIELD_MIN_ROWS = 25             # rows in-window with zero found = rejecting valid matches
+WAF_SUSTAINED = 6                    # blocks in-window while still producing = cadence too hot
 
 # The hot-loop check compares a FLEET TARGET's batch count against ifu_links writes, but a target
 # key and the manufacturer_family it writes are not always the same string. Where they differ the
@@ -129,10 +136,21 @@ def _issues(conn: sqlite3.Connection, remaining: dict[str, int], prev: dict | No
     if not alive:
         issues.append("FLEET DOWN — scraper_fleet.py is not running")
 
+    # WAF blocks are only worth waking someone for when they STICK. The fleet backs off and a
+    # rate-limit self-heals, so an occasional flag on a target that is still completing batches
+    # is noise — and noise here is expensive, because the correct response to a real block is to
+    # slow down, and being trained to ignore the alert is how you miss the one that matters.
+    # Escalate only if a blocked target also stopped producing, or if blocks are sustained.
     waf = [ln for ln in lines if "WAF/rate-limit" in ln]
     if waf:
         hit = sorted({m.group(1) for ln in waf if (m := re.search(r"\[(\w+)\] batch flagged", ln))})
-        issues.append(f"WAF blocks: {len(waf)} in {WINDOW_HOURS}h ({', '.join(hit) or 'unknown'}) — back off the cadence")
+        stuck = [t for t in hit if writes.get(TARGET_FAMILY.get(t, t) or t, 0) == 0]
+        if stuck:
+            issues.append(f"WAF BLOCKED AND STALLED: {', '.join(stuck)} — {len(waf)} blocks in "
+                          f"{WINDOW_HOURS}h and no rows written; back off the cadence")
+        elif len(waf) >= WAF_SUSTAINED:
+            issues.append(f"WAF blocks sustained: {len(waf)} in {WINDOW_HOURS}h "
+                          f"({', '.join(hit)}) — still producing, but the cadence is too hot")
 
     # Per-target: many batches, nothing resolved => spinning on unmarkable devices.
     batches: dict[str, int] = {}
@@ -151,6 +169,20 @@ def _issues(conn: sqlite3.Connection, remaining: dict[str, int], prev: dict | No
     for target, n in errors.items():
         if n >= 5:
             issues.append(f"{target}: {n} failed batches in {WINDOW_HOURS}h")
+
+    # Zero-yield: a resolver that writes rows but finds NOTHING. The hot-loop check above only
+    # catches targets writing nothing at all, so this whole class slipped past it — Baxter wrote
+    # 577 not_found and zero found because item_matches_catalog() rejected every product (it
+    # publishes no REF attribute), and each of those rows is a permanent false negative that
+    # nothing revisits. A confident not_found is worse than no coverage.
+    since = (datetime.now(timezone.utc) - timedelta(hours=WINDOW_HOURS)).isoformat()
+    for family, found, total in conn.execute(
+            "select manufacturer_family, "
+            "sum(case when status='found' then 1 else 0 end), count(*) "
+            "from ifu_links where last_checked_at >= ? group by 1", (since,)):
+        if total >= ZERO_YIELD_MIN_ROWS and not found and family != "fda_510k":
+            issues.append(f"ZERO YIELD: {family} wrote {total} rows in {WINDOW_HOURS}h, none found "
+                          f"— likely rejecting valid matches, not an empty portal")
 
     # Whole-goal stall: work outstanding, nothing moved.
     active = sum(v for k, v in remaining.items() if k not in DISTRIBUTORS)
