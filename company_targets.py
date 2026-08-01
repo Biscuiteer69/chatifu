@@ -70,7 +70,12 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "ge_healthcare",
         "name": "GE HealthCare",
         "adapter": "planned",
-        "company_patterns": ["%ge healthcare%", "%ge medical%", "%datex-ohmeda%"],
+        # "%ge medical%" matched any company ending in "...ge Medical": Highridge Medical
+        # (20,942 devices), Emerge Medical, Advantage Medical, NXStage Medical — ~24k devices
+        # from unrelated makers counted as GE, which is most of what looked like a GE backlog.
+        # Anchor on the real entity names instead.
+        "company_patterns": ["ge healthcare%", "ge medical systems%", "ge vingmed%",
+                             "ge ultrasound%", "%datex-ohmeda%"],
         "revenue": "~$19-20B",
     },
     {
@@ -94,7 +99,10 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "bd",
         "name": "BD (Becton Dickinson)",
         "adapter": "planned",
-        "company_patterns": ["%becton%", "%bd%", "%bard%", "%carefusion%"],
+        # "%bd%" matched Gembdi Dental (786) and ONE LAMBDA (425); "%bard%" matched
+        # LOMBARD MEDICAL (668). Anchor on the real entity names.
+        "company_patterns": ["%becton%", "bard %", "c. r. bard%", "c.r. bard%",
+                             "%carefusion%"],
         "revenue": "~$15-16B",
     },
     {
@@ -134,7 +142,9 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "zimmer_biomet",
         "name": "Zimmer Biomet",
         "adapter": "planned",
-        "company_patterns": ["%zimmer%", "%biomet%"],
+        # "%biomet%" also matched Precision/Imaging/Bruin BIOMETRICS. Real Biomet
+        # entities all start with the word, and "%zimmer%" still covers ZIMMER BIOMET INC.
+        "company_patterns": ["%zimmer%", "biomet %"],
         "revenue": "~$7-8B",
     },
     {
