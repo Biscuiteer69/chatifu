@@ -110,6 +110,16 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
+    # Siemens Healthineers document library — plain JSON, no auth, own host. Only the
+    # DIAGNOSTICS half is reachable (imaging operator manuals are owner-gated and return zero
+    # for every catalog), so the resolver orders diagnostics devices first rather than burning
+    # batches on guaranteed misses.
+    "siemens": {
+        "enabled": True, "rank": 4, "host": "doclib.siemens-healthineers.com",
+        "cmd": [PY, "-m", "resolvers.siemens_resolver", "--batch", "60"],
+        "batch_re": re.compile(r"Resolving (\d+) Siemens devices"),
+        "sleep_between": 30, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+    },
     # Smith+Nephew drives a real browser (Playwright) because its portal is stateful WebForms
     # with no API and no stable document URLs. ~15-20s per device is its own rate limit, and it
     # sits on its own host, so it competes with nothing. Batch kept small because each batch
