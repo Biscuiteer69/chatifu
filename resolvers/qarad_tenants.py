@@ -120,7 +120,9 @@ TENANTS: dict[str, dict] = {
         # intraocular lenses and cataract consumables dominate Alcon's GUDID footprint.
         "units": [(2, 1), (3, 2), (4, 3), (5, 4), (6, 5), (7, 6), (8, 7),
                   (9, 8), (10, 9), (11, 10), (12, 11), (13, 12), (14, 13)],
-        "patterns": ["%alcon%"],
+        # See company_targets.py: "%alcon%" also matches ALCONOX INC, whose catalog numbers
+        # collide with real Alcon products.
+        "patterns": ["%alcon laboratories%"],
         "label": "Alcon",
     },
 }

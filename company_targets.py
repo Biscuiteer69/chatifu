@@ -20,7 +20,10 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
             "%johnson and johnson%",
             "%depuy%",
             "%ethicon%",
-            "%synthes%",
+            # "%synthes%" also matches "Synthesis Health Intelligence Inc" (9 devices), an
+            # unrelated company. The trailing space still matches "Synthes GmbH" and
+            # "SYNTHES (U.S.A.) LP" while excluding it.
+            "%synthes %",
             "%biosense webster%",
             "%cerenovus%",
             "%mentor worldwide%",
@@ -171,7 +174,11 @@ TOP_DEVICE_TARGETS: list[dict[str, object]] = [
         "key": "alcon",
         "name": "Alcon",
         "adapter": "planned",
-        "company_patterns": ["%alcon%"],
+        # NOT "%alcon%" — that also matches ALCONOX INC (98 devices), a laboratory-detergent
+        # maker with nothing to do with Alcon. It is not merely noise: Alconox catalog 1104
+        # collides with a real Alcon product 1104, so a loose pattern can attach an
+        # eye-surgery IFU to a bottle of detergent.
+        "company_patterns": ["%alcon laboratories%"],
         "revenue": "~$9-10B",
     },
     {
