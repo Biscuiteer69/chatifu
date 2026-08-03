@@ -101,6 +101,36 @@ def _remaining(conn: sqlite3.Connection, tier: str = "any") -> dict[str, int]:
     return out
 
 
+def _coverage_quality(conn: sqlite3.Connection) -> dict[str, int]:
+    """Split what we DO cover by how trustworthy the document is.
+
+    "Covered" hides an enormous quality range, and the split is not close: a verified
+    manufacturer IFU, an unverified portal hit, and an FDA 510(k) summary are three different
+    products to a clinician. The summary in particular carries indications and intended use but
+    NO instructions, warnings or contraindications — so a question about contraindications
+    cannot be answered from it, however confident the passage looks.
+
+    Reported every run because the headline coverage number is otherwise flattering: most
+    covered catalogs are FDA-summary-only.
+    """
+    conn.execute("drop table if exists temp.q_ver")
+    conn.execute("create temp table q_ver as select distinct catalog_number c from ifu_links "
+                 "where status='found'")
+    conn.execute("create index temp.qv on q_ver(c)")
+    conn.execute("drop table if exists temp.q_broad")
+    conn.execute("create temp table q_broad as select distinct catalog_number c from ifu_links "
+                 "where status='candidate_broad'")
+    conn.execute("create index temp.qb on q_broad(c)")
+    verified = conn.execute("select count(*) from q_ver").fetchone()[0]
+    unverified = conn.execute(
+        "select count(*) from q_broad where c not in (select c from q_ver)").fetchone()[0]
+    fda_only = conn.execute(
+        "select count(distinct catalog_number) from ifu_links where status='fda_summary' "
+        "and catalog_number not in (select c from q_ver) "
+        "and catalog_number not in (select c from q_broad)").fetchone()[0]
+    return {"verified": verified, "unverified": unverified, "fda_only": fda_only}
+
+
 def _window_log(hours: int) -> list[str]:
     if not FLEET_LOG.exists():
         return []
@@ -213,6 +243,7 @@ def main() -> int:
         active = sum(v for k, v in remaining.items() if k not in DISTRIBUTORS)
         distrib = sum(v for k, v in remaining.items() if k in DISTRIBUTORS)
         maker_gap = sum(v for k, v in maker_only.items() if k not in DISTRIBUTORS)
+        quality = _coverage_quality(conn)
         prev = json.loads(STATE.read_text()) if STATE.exists() else None
         issues = _issues(conn, remaining, prev)
     finally:
@@ -233,6 +264,8 @@ def main() -> int:
         f"no document at all:      {active:,}   (device makers)",
         f"no MAKER IFU:            {maker_gap:,}   (FDA summary only counts here)",
         f"distributors (last):     {distrib:,}",
+        f"COVERED: verified IFU {quality['verified']:,} | unverified "
+        f"{quality['unverified']:,} | FDA-summary-only {quality['fda_only']:,}",
         rate_line,
         "top: " + ", ".join(f"{k} {v:,}" for v, k in top),
     ]).strip()
@@ -247,7 +280,8 @@ def main() -> int:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps({
         "at": now.isoformat(), "active": active, "distributors": distrib,
-        "maker_gap": maker_gap, "remaining": remaining, "issues": issues,
+        "maker_gap": maker_gap, "quality": quality,
+        "remaining": remaining, "issues": issues,
     }, indent=2))
     return 1 if issues else 0
 
