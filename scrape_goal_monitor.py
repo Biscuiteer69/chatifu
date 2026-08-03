@@ -188,8 +188,16 @@ def _issues(conn: sqlite3.Connection, remaining: dict[str, int], prev: dict | No
     active = sum(v for k, v in remaining.items() if k not in DISTRIBUTORS)
     if prev and active > 0:
         moved = prev.get("active", 0) - active
-        if moved <= 0 and not any("FLEET DOWN" in i for i in issues):
-            issues.append(f"STALLED — {active:,} identifiers outstanding, 0 resolved since last check")
+        if not any("FLEET DOWN" in i for i in issues):
+            if moved < 0:
+                # The count going UP is a different event from stalling, and saying "0 resolved"
+                # about it is simply false. It happens when false-negative rows are deleted so
+                # their devices become uncoverable again — which is a deliberate repair, not a
+                # regression. Name it so nobody hunts a fault that is not there.
+                issues.append(f"COUNT WENT UP by {-moved:,} to {active:,} — expected only after "
+                              f"rows were deleted on purpose; otherwise investigate")
+            elif moved == 0:
+                issues.append(f"STALLED — {active:,} identifiers outstanding, 0 resolved since last check")
     return issues
 
 
