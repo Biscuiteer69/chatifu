@@ -31,8 +31,18 @@ STATUS_PRIORITY = {
     # the portal's applicability metadata rather than on text we can inspect.
     ("found", "model_portal_match"): 3,
     ("candidate_broad", "search_result"): 4,
-    ("not_found", None): 5,
-    ("not_found", ""): 5,
+    # An FDA 510(k)/PMA summary. Ranked below EVERY manufacturer-sourced tier, including an
+    # unverified one, because it is a different kind of document: it carries indications and
+    # intended use but no instructions, warnings or contraindications. It is a floor, not a
+    # substitute — see resolvers/fda_resolver.py.
+    #
+    # This was previously implicit: fda_summary matched no key and fell through to the default,
+    # which happened to be 5 — the SAME rank as not_found, with ties broken by title string.
+    # That is accidental rather than intended ordering, and it made "we hold a regulatory
+    # summary" indistinguishable from "we hold nothing" at ~1.09M catalogs.
+    ("fda_summary", "fda_submission"): 5,
+    ("not_found", None): 6,
+    ("not_found", ""): 6,
 }
 DEFAULT_WARNING = (
     "ChatIFU searches manufacturer IFU sources. "
@@ -99,9 +109,13 @@ def row_priority(row: dict[str, Any]) -> tuple[int, str]:
     if (status, confidence) in STATUS_PRIORITY:
         priority = STATUS_PRIORITY[(status, confidence)]
     elif status in ERROR_STATUSES:
-        priority = 4
+        # Ranked LAST, not 4. An error row records a failed attempt and carries no document —
+        # measured: all 2,128 of them have an empty document_url, so one can never be served.
+        # At 4 it outranked fda_summary (5) and tied candidate_broad, and on 864 catalogs that
+        # meant returning nothing while a usable document sat one row lower.
+        priority = 8
     else:
-        priority = 5
+        priority = 7
     return priority, str(row.get("document_title") or row.get("document_url") or "")
 
 
