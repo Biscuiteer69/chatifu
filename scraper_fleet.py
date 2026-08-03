@@ -139,7 +139,7 @@ TARGETS: dict[str, dict] = {
     # that could already be DONE sat idle. All rank above Zimmer, without which they never ran
     # at all — Arthrex, Alcon and CooperSurgical had zero batches until that was fixed.
     "baxter": {
-        "enabled": True, "rank": 11, "host": "qarad",
+        "enabled": True, "rank": 12, "host": "qarad",
         "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "baxter", "--batch", "25"],
         "batch_re": re.compile(r"Resolving (\d+) Baxter devices"),
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
