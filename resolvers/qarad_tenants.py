@@ -50,13 +50,16 @@ TENANTS: dict[str, dict] = {
     "baxter": {
         "origin": "https://edocs.baxter.com",
         "units": [(1, 1)],                      # BAX / MEDDEV
-        # MUST match company_targets.py's baxter patterns. It listed only "%baxter%" while the
-        # metric counts Hillrom and Welch Allyn (Baxter acquisitions) too, so the resolver
-        # drained its 577 own-brand devices, honestly reported "backlog dry", and left 5,739
-        # catalogs never attempted — a target can report complete while the metric can never
-        # reach zero. Whether this portal actually serves the acquired brands is unproven; if it
-        # does not, the monitor's ZERO YIELD check will say so within ~25 rows.
-        "patterns": ["%baxter%", "%hill-rom%", "%hillrom%", "%welch allyn%"],
+        # Deliberately NARROWER than company_targets.py's baxter patterns, which also count
+        # Hillrom and Welch Allyn (Baxter acquisitions). Adding them here was tried and
+        # DISPROVED: edocs.baxter.com returns 0 items for Welch Allyn catalogs, so the acquired
+        # brands are not on this portal and every attempt wrote a false negative. The monitor's
+        # ZERO YIELD check caught it within 25 rows, which is what it is for.
+        #
+        # Consequence to keep in view: Baxter's resolver can legitimately report "backlog dry"
+        # while ~5,700 Hillrom/Welch Allyn catalogs remain uncovered in the metric. They need
+        # their own portal (Welch Allyn historically ran one), not a wider pattern here.
+        "patterns": ["%baxter%"],
         "label": "Baxter",
     },
     "coopersurgical": {

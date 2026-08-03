@@ -85,3 +85,15 @@ tenants and its multi-unit search prices a miss at one request per unit. Two tes
 rate-limited, and yield was poor where it did work. See the `bd` entry in
 `resolvers/qarad_tenants.py`. The e-ifu sweep already covers 10,144 BD devices on a different
 backend.
+
+## Hillrom / Welch Allyn (counted under Baxter) — ~5,700 identifiers — WRONG PORTAL
+
+company_targets.py counts Baxter as %baxter% + %hill-rom% + %hillrom% + %welch allyn%, but
+edocs.baxter.com returns **0 items** for Welch Allyn catalogs (008-0002-01, 008-0003-01) — the
+acquired brands are not on Baxter's portal. Adding them to the Baxter resolver was tried and
+disproved; it wrote 970 false negatives before the monitor's ZERO YIELD check flagged it (rows
+since deleted).
+
+Consequence: Baxter's resolver can legitimately report "backlog dry" while ~5,700 catalogs
+remain uncovered in the metric. They need their own resolver against Welch Allyn's own portal,
+not a wider pattern on Baxter's.

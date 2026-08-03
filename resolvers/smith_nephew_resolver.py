@@ -126,8 +126,14 @@ class SmithNephewResolver:
         if NOT_FOUND_TEXT in " ".join(page.inner_text("body").split()).lower():
             return []
 
+        # VISIBLE links only. A product with several documents renders a language row per
+        # document, but only the expanded one is on screen — a catalog like 71358205 offers
+        # ("English", False), ("English (US)", False) and ("English", True). Selecting by text
+        # alone picks a hidden element, and clicking it hangs for the full 30s timeout, which
+        # the batch reports as "0 devices resolved" with no row written. That looked like the
+        # portal running out of documents; it was ~4,000 pending devices blocked on a click.
         links = [a for a in page.query_selector_all("a")
-                 if "gv_ProductDocuments" in (a.get_attribute("href") or "")]
+                 if "gv_ProductDocuments" in (a.get_attribute("href") or "") and a.is_visible()]
         if not links:
             return []
 
