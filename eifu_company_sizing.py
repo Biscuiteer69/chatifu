@@ -41,19 +41,44 @@ def ensure_table(db: str) -> None:
 
 
 def next_companies(db: str, limit: int) -> list[sqlite3.Row]:
+    """One probe device per company not yet sized.
+
+    Keyed on whichever identifier the device actually carries. Requiring a catalog number
+    silently skipped 5,855 of the 11,585 companies — 1.12M devices whose GUDID records
+    supply only a model number — so they were never probed and their coverage was recorded
+    nowhere, not even as unknown. The probe identifier is the same shape either way, and
+    EifuResolver already accepts a model number, so this costs no extra requests.
+    """
     conn = sqlite3.connect(db, timeout=60.0)
     conn.row_factory = sqlite3.Row
     excl = " AND ".join(["lower(company_name) NOT LIKE ?"] * len(_DEDICATED_PATTERNS))
     try:
+        # Pick the LONGEST identifier the company has, not the alphabetically first. A
+        # company is recorded covered/uncovered from this single probe and never revisited,
+        # so a probe that could not have matched becomes a permanent false negative. The
+        # resolver refuses to verify a portal hit on fewer than MIN_PORTAL_TERM_LEN
+        # alphanumerics because short identifiers collide inside longer tokens, and min()
+        # kept handing it exactly those -- '148', 'Rho', '740.RA'. Longest-first also
+        # correlates with the distinctive full-length REFs the portals actually index.
         return conn.execute(
             f"""
-            select company_name, catalog_number, model_number, raw_json,
-                   min(catalog_number) as _mincat
-            from devices
-            where catalog_number is not null and trim(catalog_number) != ''
-              and {excl}
-              and company_name not in (select company from eifu_company_coverage)
-            group by company_name
+            select company_name, catalog_number, model_number, raw_json, probe_id from (
+                select company_name, catalog_number, model_number, raw_json,
+                       coalesce(nullif(trim(catalog_number), ''),
+                                nullif(trim(model_number), '')) as probe_id,
+                       row_number() over (
+                           partition by company_name
+                           order by length(coalesce(nullif(trim(catalog_number), ''),
+                                                    nullif(trim(model_number), ''))) desc,
+                                    coalesce(nullif(trim(catalog_number), ''),
+                                             nullif(trim(model_number), ''))
+                       ) as rn
+                from devices
+                where coalesce(nullif(trim(catalog_number), ''),
+                               nullif(trim(model_number), '')) is not null
+                  and {excl}
+                  and company_name not in (select company from eifu_company_coverage)
+            ) where rn = 1
             limit ?
             """,
             (*_DEDICATED_PATTERNS, limit),
@@ -93,7 +118,9 @@ def main() -> None:
             print(f"sizing complete: {total} companies checked, {covered_n} covered")
             return
         for row in rows:
-            company, catalog = row["company_name"], row["catalog_number"]
+            # probe_id is the catalog number where GUDID supplies one and the model number
+            # otherwise; the portal is searched the same way for both.
+            company, catalog = row["company_name"], row["probe_id"]
             raw = json.loads(row["raw_json"]) if row["raw_json"] else {}
             try:
                 # log_to_db=True so a real hit is captured as coverage, not just measured.
