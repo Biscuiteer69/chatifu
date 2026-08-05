@@ -226,6 +226,27 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 600, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
+    # --- Family-keyed portals. These publish one document per PRODUCT FAMILY rather than per
+    #     catalog, which is how the spine/implant makers behind the 2.1M model-number-only
+    #     GUDID records all work. The resolver MIRRORS the portal once and then maps devices
+    #     offline, so a batch normally makes ZERO requests: Globus is ~520 requests for 43k
+    #     devices, Alphatec ~11 for 46k. Batches can therefore be large and closely spaced
+    #     without being impolite -- the only traffic is the index refresh every 14 days, which
+    #     is why batch_timeout has to cover a full re-mirror.
+    "globus": {
+        "enabled": True, "rank": 19, "host": "globusmedical.com",
+        "cmd": [PY, "-m", "resolvers.globus_resolver", "--batch", "4000"],
+        "batch_re": re.compile(r"Resolving (\d+) Globus devices"),
+        "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 3600,
+        "max_backoff": 2 * 3600,
+    },
+    "alphatec": {
+        "enabled": True, "rank": 19, "host": "atecspine.com",
+        "cmd": [PY, "-m", "resolvers.atec_resolver", "--batch", "4000"],
+        "batch_re": re.compile(r"Resolving (\d+) Alphatec devices"),
+        "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
+        "max_backoff": 2 * 3600,
+    },
     # Company sizing: ONE probe per never-probed company, to learn who is on e-ifu at all.
     # It reported "complete" at 5,646 of 11,585 companies because it required a catalog
     # number; the other 5,855 (1.12M devices) carry only a model number and were never asked
