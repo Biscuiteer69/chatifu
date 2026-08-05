@@ -268,6 +268,23 @@ LOAD_CEILING = (os.cpu_count() or 8) * 0.85   # pause new batches above this 1-m
 MAX_ACTIVE = int(os.environ.get("CHATIFU_FLEET_MAX_ACTIVE", "8"))
 DONE_RECHECK = 24 * 3600
 
+# Targets sharing a contended host have to take turns. A worker only ever returned when
+# its backlog went DRY, so on a host with a limit of 1 the highest-ranked target held the
+# slot indefinitely and its peers never ran at all: jnj and eifu_sizing sat at exactly zero
+# batches behind eifu_sweep, whose backlog is effectively endless, so "lower rank" silently
+# meant "never" rather than "later". Yield the slot after a bounded run instead.
+#
+# Only e-ifu needs this today (qarad's limit of 2 plus small backlogs already rotates), but
+# it is keyed by host because the condition is a contended host, not this one portal.
+TURN_BATCHES = {"e-ifu.com": 8}
+
+# A yielded target must stay ineligible long enough for the supervisor to promote a peer,
+# or promote() -- which walks in rank order -- would hand the slot straight back to it.
+YIELD_COOLDOWN = 120
+
+_YIELD_LOCK = threading.Lock()
+_YIELDED: set[str] = set()
+
 # How many workers may hit ONE host at once. The fleet's per-target isolation only
 # buys anything when targets sit on different hosts, and several no longer do:
 # Stryker + Zimmer share Qarad, and jnj + eifu_sweep share e-ifu.com. Without this
@@ -299,6 +316,8 @@ def system_busy() -> bool:
 
 def run_target(key: str, cfg: dict) -> None:
     backoff = 30
+    turn_limit = TURN_BATCHES.get(cfg.get("host", key))
+    batches_this_turn = 0
     log(f"[{key}] worker started")
     while not STOP.is_set():
         if system_busy():
@@ -353,6 +372,13 @@ def run_target(key: str, cfg: dict) -> None:
             return  # supervisor promotes the next company; re-checks this one later
 
         log(f"[{key}] batch ok ({last})")
+        batches_this_turn += 1
+        if turn_limit and batches_this_turn >= turn_limit:
+            with _YIELD_LOCK:
+                _YIELDED.add(key)
+            log(f"[{key}] turn over after {batches_this_turn} batches; "
+                f"yielding the {cfg.get('host', key)} slot")
+            return
         STOP.wait(cfg["sleep_between"])
 
     log(f"[{key}] worker stopped")
@@ -377,7 +403,11 @@ def main() -> None:
         f"queue by rank: {enabled}")
 
     active: dict[str, threading.Thread] = {}
-    done_at: dict[str, float] = {}   # target -> monotonic time it last went dry
+    done_at: dict[str, float] = {}   # target -> monotonic time it last freed its slot
+    # How long that target stays ineligible. A target that went DRY has nothing to do for a
+    # long while; one that merely used up its turn is still full of work and must come back
+    # as soon as a peer has had a chance, so the two cannot share one constant.
+    cooldown: dict[str, float] = {}
 
     def promote() -> None:
         for key in enabled:                       # already rank-sorted
@@ -385,8 +415,8 @@ def main() -> None:
                 break
             if key in active:
                 continue
-            if key in done_at and (time.monotonic() - done_at[key]) < DONE_RECHECK:
-                continue                           # completed recently; re-check later
+            if key in done_at and (time.monotonic() - done_at[key]) < cooldown.get(key, DONE_RECHECK):
+                continue                           # dry or mid-rotation; re-check later
             host = TARGETS[key].get("host", key)
             limit = HOST_LIMITS.get(host, DEFAULT_HOST_LIMIT)
             if sum(1 for k in active if TARGETS[k].get("host", k) == host) >= limit:
@@ -401,7 +431,11 @@ def main() -> None:
     while not STOP.is_set():
         for key, t in list(active.items()):
             if not t.is_alive():
-                done_at[key] = time.monotonic()    # dry or crashed -> free the slot
+                done_at[key] = time.monotonic()    # dry, yielded or crashed -> free the slot
+                with _YIELD_LOCK:
+                    took_a_turn = key in _YIELDED
+                    _YIELDED.discard(key)
+                cooldown[key] = YIELD_COOLDOWN if took_a_turn else DONE_RECHECK
                 del active[key]
         if not STOP.is_set():
             promote()
