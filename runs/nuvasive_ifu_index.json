@@ -1,0 +1,659 @@
+{
+ "built_at": "2026-08-05T19:41:02+00:00",
+ "products": [
+  {
+   "label": "Modulus ALIF System",
+   "slug": "3DP",
+   "title": "Modulus ALIF System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=FC472B3377F21EDF85DB8C25398A017B&compId=9400085-EN%20IFU%20Rev%20J%20Modulus%20ALIF%20System%20IFU.pdf"
+  },
+  {
+   "label": "ACP System",
+   "slug": "ACP",
+   "title": "NuVasive ACP System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401EDDBDB733CA9DDDE166&compId=9400042-EN%20IFU%20Rev%20F%20Final%20Copy%20-%20NuVasive%20ACP%20System%20IFU.pdf"
+  },
+  {
+   "label": "BASE Interfixated System",
+   "slug": "ALIF Interfixated",
+   "title": "BASE Interfixated System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCBC98DC6DA9426148&compId=9402162-EN%20IFU%20Rev%20J%20Final%20Copy%20-%20BASE%20Interfixated%20System%20IFU.pdf"
+  },
+  {
+   "label": "Amniotic Membrane DS IFU",
+   "slug": "AMNIOTIC MEMBRANE",
+   "title": "Amniotic Membrane DS IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED8B396F3C263A220FD&compId=M1S2814-EN%20IFU%20Rev%20A%20Amniotic%20Membrane%20DS.pdf"
+  },
+  {
+   "label": "AP Expandable XLIF System",
+   "slug": "APX",
+   "title": "AP Expandable XLIF System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED8AFA55BFB5E1D60FD&compId=9401976-EN%20IFU%20Rev%20C%20Review%20Copy%20-%20AP%20Expandable%20XLIF%20System%20IFU.pdf"
+  },
+  {
+   "label": "Affix Spinous Process Plate System",
+   "slug": "Affix",
+   "title": "Affix Spinous Process Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1EDA918FBE72DC320117&compId=9400263-EN%20IFU%20Rev%20N%20Final%20Copy%20-%20Affix%20Spinous%20Process%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "Machined Allografts",
+   "slug": "Allograft",
+   "title": "Allograft Package Insert IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361FD0B4934E531B712196&compId=9004229-EN%20IFU%20Rev%20V.pdf"
+  },
+  {
+   "label": "Archon Anterior Cervical Plate System",
+   "slug": "Archon",
+   "title": "Archon ACP Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDCA1A3297EB554E13D&compId=9401672-EN%20IFU%20Rev%20H%20Final%20Copy%20-%20Archon%20ACP%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "Armada Spinal System",
+   "slug": "Armada",
+   "title": "Armada Spinal System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401ED8AFF7DC91D148A0FE&compId=9400798-EN%20IFU%20Rev%20J%20Final%20Copy%20-%20Armada%20Spinal%20System%20IFU.pdf"
+  },
+  {
+   "label": "6-Port Aspiration Needle",
+   "slug": "Aspiration Needle",
+   "title": "NuVasive 6-Port Aspiration Needle IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=E463B560E75CF2F1BC4C005056B33711&compId=9400346-EN%20IFU%20Rev%20D%20Review%20Copy%20-%206-Port%20Aspiration%20Needle%20IFU.pdf"
+  },
+  {
+   "label": "AttraX Putty",
+   "slug": "AttraX Putty",
+   "title": "AttraX Putty IFU, US",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1EDCAAA5525CAB7BE150&compId=9401073-EN%20IFU%20Rev%20K%20Final%20Copy%20-%20AttraX%20Putty%20Bone%20Graft%20Substitute%20IFU.pdf"
+  },
+  {
+   "label": "AttraX Scaffold",
+   "slug": "AttraX Scaffold",
+   "title": "AttraX Scaffold, IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=B854C12B25C51EDF83C37D6F1709217E&compId=9402471-EN%20IFU%20Rev%20C%20Final%20Copy%20-%20AttraX%20Scaffold%20IFU.pdf"
+  },
+  {
+   "label": "Bendini System",
+   "slug": "Bendini System",
+   "title": "Bendini System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDC9C81336C1494613D&compId=9402519-EN%20IFU%20Rev%20D%20Final%20Copy%20-%20Bendini%20System%20IFU.pdf"
+  },
+  {
+   "label": "Brigade Interfixated System",
+   "slug": "Brigade Interbody",
+   "title": "Brigade System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCBC98E0FBFC836148&compId=9401102-EN%20IFU%20Rev%20M%20Final%20Copy%20-%20Brigade%20System%20IFU.pdf"
+  },
+  {
+   "label": "Brigade ALIF Plate System",
+   "slug": "Brigade Plate",
+   "title": "Brigade ALIF Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDAAD9CFB79B2B1C110&compId=9401367-EN%20IFU%20Rev%20G%20Final%20Copy%20-%20Brigade%20ALIF%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "Camber Laminoplasty System",
+   "slug": "CAMBER",
+   "title": "Camber Laminoplasty System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED9B7C72B9F5FD2E10B&compId=9402810-EN%20IFU%20Rev%20A%20Camber%20Laminoplasty%20System%20IFU.pdf"
+  },
+  {
+   "label": "Vertera Spine Coalesce Thoracolumbar Interbody Fusion System",
+   "slug": "COALESCE LUMBAR INTERBODY FUSI",
+   "title": "Coalesce IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCBC98038F6F478148&compId=9402597-EN%20IFU%20Rev%20G%20Final%20Copy%20-%20Coalesce%20IFU.pdf"
+  },
+  {
+   "label": "Cohere Thoracolumbar Interbody System",
+   "slug": "COHERE",
+   "title": "Cohere Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCBC97FFF740700148&compId=9402772-EN%20IFU%20Rev%20K%20Final%20Copy%20-%20Cohere%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "Cohere ALIF Interbody Implant System",
+   "slug": "COHERE ALIF",
+   "title": "Cohere ALIF Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1FD0BC9B5FC89DBD01A4&compId=9002151-EN%20NuVasive%20Cohere%20ALIF%20System%20IFU%20Rev%20C.pdf"
+  },
+  {
+   "label": "Cohere Cervical Interbody Fusion Device",
+   "slug": "COHERE CERVICAL INTERBODY FUSI",
+   "title": "Cohere IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1FD0BC9C1EAFE806C1A4&compId=9402598-EN%20IFU%20Rev%20H%20Cohere%20Cervical%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "CoRoent XL Interfixated System",
+   "slug": "CoRoent Interfixated",
+   "title": "CoRoent XL Interfixated System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCBC988EE2CC14A148&compId=9401854-EN%20IFU%20Rev%20J%20Final%20Copy%20-%20CoRoent%20XL%20Interfixated%20System%20IFU.pdf"
+  },
+  {
+   "label": "CoRoent Small Interbody System",
+   "slug": "CoRoent Small",
+   "title": "CoRoent Small Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1FD0BC9BE909954C21A4&compId=9401991-EN%20IFU%20Rev%20K%20CoRoent%20Small%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "CoRoent Small Interlock System",
+   "slug": "CoRoent Small Interlock",
+   "title": "CoRoent Small Interlock System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1FD0BC9BCCCA75FE41A4&compId=9401314-EN%20IFU%20Rev%20K%20CoRoent%20Small%20Interlock%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "CoRoent Thoracolumbar System",
+   "slug": "CoRoent Thoracolumbar System",
+   "title": "CoRoent Thoracolumbar System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCBC9880F2755BE148&compId=9402012-EN%20IFU%20Rev%20M%20Final%20Copy%20-%20CoRoent%20Thoracolumbar%20System%20IFU.pdf"
+  },
+  {
+   "label": "XLIF Decade Plate",
+   "slug": "Decade Plate",
+   "title": "XLIF Decade Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDAAD9CFD46CC37C110&compId=9401560-EN%20IFU%20Rev%20F%20Final%20Copy%20-%20XLIF%20Decade%20System%20IFU.pdf"
+  },
+  {
+   "label": "Sterile Drill Bits",
+   "slug": "Drill Bits",
+   "title": "NuVasive Sterile Drill Bits IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED8AFBB109B49C000FA&compId=9402013-EN%20IFU%20Rev%20B%20Final%20Copy%20-%20NuVasive%20Sterile%20Drill%20Bits%20IFU.pdf"
+  },
+  {
+   "label": "NVJJB/M5/Pulse EMG Endotracheal Tube",
+   "slug": "ET Tube",
+   "title": "NVJJB-M5 EMG ET Tube IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61ED9A58856BF2D8D20FC&compId=9400928-EN%20IFU%20Rev%20G%20Final%20Copy%20-%20NVJJB-M5%20EMG%20ET%20Tube%20IFU.pdf"
+  },
+  {
+   "label": "Ethocel Cellular Bone Matrix",
+   "slug": "ETHOCEL",
+   "title": "Ethocel Cellular Bone Matrix IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED985BF67E10DBD60FE&compId=9402264%20IFU-EN%20Rev%20B%20Final%20Copy%20-%20Ethocel%20IFU.pdf"
+  },
+  {
+   "label": "Ethocel XTR",
+   "slug": "ETHOCEL XTR",
+   "title": "Ethocel XTR IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED98684A2772EE3E101&compId=9402424%20IFU-EN%20Rev%20A%20Final%20Copy%20-%20Ethocel%20XTR%20IFU.pdf"
+  },
+  {
+   "label": "FREEDOM System",
+   "slug": "FREEDOM NAIL - US",
+   "title": "PRECICE Freedom System - US IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568677011EDC94BEA7400CCBA13E&compId=LC0308_C_MASTER.pdf"
+  },
+  {
+   "label": "Formagraft Collagen Bone Graft Matrix",
+   "slug": "Formagraft",
+   "title": "FormaGraft Bone Graft Matrix IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1EDAB5B3E02B54F2A120&compId=9400108-EN%20IFU%20Rev%20F%20Final%20Copy%20-%20Formagraft%20Collagen%20Bone%20Graft%20Matrix%20IFU.pdf"
+  },
+  {
+   "label": "Graft Delivery System",
+   "slug": "GDS",
+   "title": "Graft Delivery System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61ED994B3BE16478A00F4&compId=9401945-EN%20IFU%20Rev%20E%20Final%20Copy%20-%20Graft%20Delivery%20Instrument%20IFU.pdf"
+  },
+  {
+   "label": "Growth Rod Conversion Set",
+   "slug": "GROWTH ROD",
+   "title": "Growth Rod Conversion Set IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED8AB811D781F2F00FC&compId=9402703-EN%20IFU%20Rev%20A%20Growth%20Rod%20Conversion%20Set%20IFU.pdf"
+  },
+  {
+   "label": "General Instruments",
+   "slug": "General Instruments",
+   "title": "Instruments IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDD9E83093EC8B4415D&compId=9004421-EN%20IFU%20Rev%20W%20Final%20Copy%20-%20General%20Instruments%20IFU.pdf"
+  },
+  {
+   "label": "Gradient Plus Plate System",
+   "slug": "Gradient",
+   "title": "Gradient Plus Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDCA1A37750D1D4E13D&compId=9004161-EN%20IFU%20Rev%20M%20Final%20Copy%20-%20Gradient%20Plus%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "HALO System",
+   "slug": "Halo",
+   "title": "Halo ALIF Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1EDBA4CC49FE6CC70130&compId=9400179-EN%20IFU%20Rev%20J%20Final%20Copy%20-%20Halo%20System%20IFU.pdf"
+  },
+  {
+   "label": "HALO Buttress Plate System",
+   "slug": "Halo Buttress Plate",
+   "title": "Halo Buttress Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568614B71ED8B099C503461DE0F1&compId=9402132-EN%20IFU%20Rev%20B%20Final%20Copy%20-%20Halo%20Buttress%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "Helix ACP Plate System",
+   "slug": "Helix",
+   "title": "Helix ACP Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDCA1A3343684AB413D&compId=9400127-EN%20IFU%20Rev%20N%20Final%20Copy%20-%20Helix%20ACP%20Plate%20System.pdf"
+  },
+  {
+   "label": "NVJJB/M5/Pulse I-PAS III (Diamond and Beveled Tip)",
+   "slug": "I-PAS",
+   "title": "NVJJB/M5 I-PAS III IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61ED9A588595F949BA0FC&compId=9401118-EN%20IFU%20Rev%20H%20Final%20Copy%20-%20NVJJB-M5%20I-PAS%20III%20IFU.pdf"
+  },
+  {
+   "label": "NVJJB/M5/Pulse I-PAS III (Diamond and Beveled Tip)",
+   "slug": "I-PAS OUS",
+   "title": "NVJJB-M5 I-PAS III OUS IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDD9F91E1EA0E098161&compId=9402791-EN%20IFU%20Rev%20G%20Final%20Copy%20NVJJB-M5%20I-PAS%20III%20OUS%20IFU.pdf"
+  },
+  {
+   "label": "NuVasive Cleaning and Sterilization Instructions",
+   "slug": "Instrument Cleaning",
+   "title": "NuVasive Cleaning and Sterilization Inst",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDD9594E30999B4215F&compId=9400896-EN%20IFU%20Rev%20N%20Final%20Copy-%20Cleaning%20and%20Sterilization%20Instructions.pdf"
+  },
+  {
+   "label": "NuVasive Bipolar Forceps",
+   "slug": "KIRWAN BIPOLAR FORCEPS",
+   "title": "NuVasive Bipolar Forceps IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDAB0BF22589E128110&compId=9000015-EN%20IFU-NRF-5%20Rev%20A.pdf"
+  },
+  {
+   "label": "NuVasive Bipolar Forceps Cord",
+   "slug": "KIRWAN COAGULATION",
+   "title": "Reusable Coagulation Accessories IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1EDD9C82288D949AC164&compId=NRCA-5_%20Reusable%20Coagulation%20Accessories%20IFU%20Rev.%20A.pdf"
+  },
+  {
+   "label": "LessRay System",
+   "slug": "LessRay",
+   "title": "LessRay IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568677011EDC89F7FBE6545B013B&compId=9402522-EN%20IFU%20Rev%20L%20Final%20Copy%20-%20LessRay%20System%20IFU.pdf"
+  },
+  {
+   "label": "Leverage LFS System",
+   "slug": "Leverage",
+   "title": "Leverage LFS System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568614B71ED8AFBD48219564A0F1&compId=9400936-EN%20IFU%20Rev%20F%20Final%20Copy%20-%20Leverage%20LFS%20System%20IFU.pdf"
+  },
+  {
+   "label": "MAGEC System",
+   "slug": "MAGEC 1 US",
+   "title": "MAGEC IFU - US",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201FD081B8604211D2E194&compId=LC0063-%20Rev%20AA.pdf"
+  },
+  {
+   "label": "MAGEC ERC 1 - Operator's Manual",
+   "slug": "MAGEC ERC 1",
+   "title": "MAGEC ERC1 Operators Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201FD081B87B12A2BA6194&compId=OM0000%20-%20Rev%20R.pdf"
+  },
+  {
+   "label": "MAGEC ERC 2 - Operator's Manual",
+   "slug": "MAGEC ERC 2",
+   "title": "MAGEC ERC2 Operator Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201FD081B883AE59530194&compId=OM0006-%20Rev%20N.pdf"
+  },
+  {
+   "label": "MAGEC Rod Template",
+   "slug": "MAGEC ROD TEMP",
+   "title": "MAGEC Rod Template OUS IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201FD081B943C78B680194&compId=LC0205%20-%20Rev%20M.pdf"
+  },
+  {
+   "label": "NuVasive NTS Instrument Holder Snake Arm",
+   "slug": "MEDIFLEX SNAKE ARM",
+   "title": "Mediflex Instrument Holder Snake Arm IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDBB488A10B76FC612F&compId=IFU%2074-NU%20NTS%20Instrument%20Holder%20Snake%20Arm%20REV%201.0.pdf"
+  },
+  {
+   "label": "MLX Lumbar Interbody System",
+   "slug": "MLX",
+   "title": "MLX Lumbar Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61ED9949A09EB560F40F4&compId=9401758-EN%20IFU%20Rev%20G%20Final%20Copy%20-%20MLX%20Thoracolumbar%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "Modulus Expandable Posterior Lumbar MOD-EX PL Interbody System",
+   "slug": "MOD-EX PL INTERBODY",
+   "title": "MOD-EX PL Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401EDBAFF94BF184734132&compId=9002120-EN%20IFU%20Rev%20A%20MOD-EX%20PL%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "MOD-EX XLIF Interbody System",
+   "slug": "MOD-EX XLIF INTERBODY",
+   "title": "MOD-EX XLIF Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568677011EDD93CA5E589A094159&compId=9000061-EN%20IFU%20Rev%20A-MOD-EX%20XLIF%20Interbody%20System.pdf"
+  },
+  {
+   "label": "MaXcess and NTS Sterile Light Cable",
+   "slug": "MaXcess Light Guide",
+   "title": "MaXcess and NTS Sterile Light Cable IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDC9BD04651C099813B&compId=9402014-EN%20IFU%20Rev%20D%20Final%20Copy%20-%20MaXcess%20and%20NTS%20Sterile%20Light%20Cable%20IFU.pdf"
+  },
+  {
+   "label": "Modulus Interbody System",
+   "slug": "Modulus Interbody",
+   "title": "Modulus Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1FD0BC9BFE841C7DC1A4&compId=9402506-EN%20IFU%20Rev%20K%20Modulus%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "MaXcess Monopolar Disposable Resector",
+   "slug": "Monopolar Resector",
+   "title": "MaXcess Monopolar Disposable Resector",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=E438478C38B721F1A323005056B3325C&compId=9401188-EN%20IFU%20Rev%20B%20Review%20Copy%20-%20MaXcess%20Monopolar%20Disposable%20Resector%20IFU%20-%20Sterile.pdf"
+  },
+  {
+   "label": "Navigation.S Instruments",
+   "slug": "NAVIGATION S",
+   "title": "Navigation.S Instruments IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDBABA5AEEEF4A5612B&compId=9402719-EN%20IFU%20Rev%20E%20Final%20Copy%20-%20Navigation.S%20Instruments%20IFU.pdf"
+  },
+  {
+   "label": "Graft Delivery Syringe",
+   "slug": "NORDSON IFU",
+   "title": "Graft Delivery Syringe IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1EDBA0B9DC3D0EAB612E&compId=22068_Rev%20B_Artwork.pdf"
+  },
+  {
+   "label": "NuvaLine Quick Reference Manual",
+   "slug": "NUVALINE",
+   "title": "NuvaLine Quick Reference Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDA938A3BD96740E107&compId=9402141-EN%20IFU%20Rev%20G%20Final%20Copy%20-%20NuvaLine%20QRM.pdf"
+  },
+  {
+   "label": "NVM5 System",
+   "slug": "NVM5 System",
+   "title": "NVM5 System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDB979A5D3348218129&compId=9402521-EN%20IFU%20Rev%20B%20Final%20Copy%20-%20NVM5%20System%20IFU.pdf"
+  },
+  {
+   "label": "Osteocel Plus",
+   "slug": "Osteocel Plus",
+   "title": "Osteocel Plus IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED985BF8DE474A740FE&compId=9400619%20IFU-EN%20Rev%20L%20Final%20Copy%20-%20Osteocel%20Plus%20IFU.pdf"
+  },
+  {
+   "label": "Osteocel Pro",
+   "slug": "Osteocel Pro",
+   "title": "Osteocel Pro IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED985BF92B1145F00FE&compId=9401850%20IFU-EN%20Rev%20D%20Final%20Copy%20-%20Osteocel%20Pro%20IFU.pdf"
+  },
+  {
+   "label": "PCM Cervical Disc System",
+   "slug": "PCM",
+   "title": "PCM Cervical Disc System IFU - US",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=E4C11C24EF6CD6F1BA6A005056B36238&compId=9401637-EN%20IFU%20Rev%20D%20Review%20Copy%20-%20PCM%20Cervical%20Disc%20US%20IFU.pdf"
+  },
+  {
+   "label": "Monolith Corpectomy System",
+   "slug": "PEEK Corpectomy",
+   "title": "Monolith Corpectomy System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61ED994B4A9467BEC80F4&compId=9402172-EN%20IFU%20Rev%20F%20Final%20Copy%20-%20Monolith%20Corpectomy%20System%20IFU.pdf"
+  },
+  {
+   "label": "PRECICE Ankle Salvage",
+   "slug": "PRECICE ANKLE SALVAGE \u2013 NEW",
+   "title": "Precice Ankle Salvage System US IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1EDE98A95C22AF4A817C&compId=LC0314_A_MASTER.pdf"
+  },
+  {
+   "label": "PRECICE Bone Transport System",
+   "slug": "PRECICE BONE TRANS - US",
+   "title": "PRECICE Bone Transport System - US IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDC8AD58692E2FA8137&compId=LC0307_A_MASTER.pdf"
+  },
+  {
+   "label": "Precice ERC 1 - Operator's Manual",
+   "slug": "PRECICE ERC 1",
+   "title": "PRECICE ERC1 Operators Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1EDCB28181BBC70E4152&compId=OM0005_V_MASTER.pdf"
+  },
+  {
+   "label": "Precice ERC 2P - Operator's Manual",
+   "slug": "PRECICE ERC 2P",
+   "title": "PRECICE ERC2P Operators Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDCAED12B010F212143&compId=OM0009_L_MASTER.pdf"
+  },
+  {
+   "label": "Precice ERC 2P Presciption Software - Operator's Manual",
+   "slug": "PRECICE ERC 2P - SOFTWARE",
+   "title": "PRECICE 2P OM - Prescription Software",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568624FA1EDCAED1B5981939C143&compId=OM0010_L_MASTER.pdf"
+  },
+  {
+   "label": "Precice ERC 3P - Operator's Manual",
+   "slug": "PRECICE ERC 3P",
+   "title": "ERC 3P Operator Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDCA8A9919B437E013A&compId=OM0016_H_MASTER.pdf"
+  },
+  {
+   "label": "Precice ERC 4P - Operator's Manual",
+   "slug": "PRECICE ERC 4P",
+   "title": "ERC 4P Operator's Manual",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568677011EDCB4C8852CDEFF2148&compId=OM0017_E_MASTER.pdf"
+  },
+  {
+   "label": "PRECICE Fast Distractor",
+   "slug": "PRECICE FAST DIST",
+   "title": "PRECICE System - Fast Distractor IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1EDCADF212E5E9E40150&compId=LC0251_G_MASTER.pdf"
+  },
+  {
+   "label": "PRECICE Fast Distractor Max",
+   "slug": "PRECICE FAST DISTRACTOR",
+   "title": "PRECICE Fast Distractor Max",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDCAECF64B75C402143&compId=LC0299_B_MASTER.pdf"
+  },
+  {
+   "label": "Precice Max System",
+   "slug": "PRECICE MAX SYSTEM IFU",
+   "title": "Precice Max System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401EDEB1A05B0FF339217B&compId=LC0336-B%20MASTER.pdf"
+  },
+  {
+   "label": "PRECICE UNYTE System",
+   "slug": "PRECICE NAIL \u2013 US",
+   "title": "PRECICE UNYTE System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568677011EDC94BEA91D7755813E&compId=LC0310_C_MASTER.pdf"
+  },
+  {
+   "label": "Precice Plating System IFU",
+   "slug": "PRECICE PLATE",
+   "title": "Precice Plating System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDAA984CA883B0A010F&compId=LCO272_B_MASTER.pdf"
+  },
+  {
+   "label": "PRECICE Sterile Packaged Instruments",
+   "slug": "PRECICE STERILE INS-US",
+   "title": "PRECICE System IFU - Sterile Ins US Only",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201FD081B873816E064194&compId=LC0316%20-%20Rev%20B.pdf"
+  },
+  {
+   "label": "PRECICE STRYDE System",
+   "slug": "PRECICE STRYDE - US",
+   "title": "PRECICE Stryde System - US IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401EDC8AD7C1EB3CB4C139&compId=LC0306_A_MASTER.pdf"
+  },
+  {
+   "label": "Precice IMLL System",
+   "slug": "PRECICE US",
+   "title": "PRECICE IMLL IFU - US",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDDB3E296DF38E2C16A&compId=LC0305-D_MASTER.pdf"
+  },
+  {
+   "label": "Prone Patient Positioner",
+   "slug": "PRONE POSITIONER",
+   "title": "Prone Positioner IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDEBDD6BF0AB1B9E17E&compId=9000280-%20EN%20IFU%20Rev.%20A%20XLIF%20Prone%20Patient%20Positioner%20IFU%20Review%20Copy.pdf"
+  },
+  {
+   "label": "Propel DBM Putty and Gel IFU",
+   "slug": "PROPEL DBM",
+   "title": "Propel DBM Putty and Gel IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED8B396FDF31C1F40FD&compId=M1S2815-EN%20IFU%20Rev%20A%20Propel%20DBM%20Putty%20and%20Gel.pdf"
+  },
+  {
+   "label": "Propel DBM Putty Plus and Gel Plus IFU",
+   "slug": "PROPEL DMB PLUS",
+   "title": "Propel DBM Putty Plus and Gel Plus IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED8B396EC7211F9A0FD&compId=M1S2812-%20EN%20IFU%20Rev%20A%20Propel%20DBM%20Putty%20Plus%20and%20Gel%20Plus.pdf"
+  },
+  {
+   "label": "Propel DBM Sponge",
+   "slug": "PROPEL SPONGE",
+   "title": "Propel DBM Sponge IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568614B71ED9B0897178140F6101&compId=M1S2847-EN%20IFU%20Rev%20A%20Propel%20DBM%20Sponge%20IFU.pdf"
+  },
+  {
+   "label": "Pulse System",
+   "slug": "PULSE",
+   "title": "Pulse System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDFB8CE37D25500818C&compId=9402636-EN%20IFU%20Rev%20M%20Pulse%20System%20IFU.pdf"
+  },
+  {
+   "label": "Power Instruments",
+   "slug": "Power Instruments",
+   "title": "Power Instruments IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED8AAF50F6ADF2560F9&compId=9402040-EN%20IFU%20Rev%20E%20Final%20Copy%20-%20Power%20Instruments.pdf"
+  },
+  {
+   "label": "Precept/Precept MAS PLIF System",
+   "slug": "Precept",
+   "title": "Precept Spinal System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401ED8B0A0781E2E73C0FE&compId=9401385-EN%20IFU%20Rev%20F%20Final%20Copy%20-%20Precept%20Spinal%20System%20IFU.pdf"
+  },
+  {
+   "label": "Propel DBM Fibers",
+   "slug": "Propel DBM Fibers",
+   "title": "Propel DBM Fibers IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568624FA1EDFAE9A441065690187&compId=9402496%20IFU-EN%20Rev%20D%20Propel%20DBM%20Fibers%20IFU.pdf"
+  },
+  {
+   "label": "Reline Cervical System",
+   "slug": "RELINE C",
+   "title": "Reline Cervical System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568624FA1EDD83ED11E093390155&compId=9402848-EN%20IFU%20Rev%20C%20Final%20Copy%20Reline%20Cervical%20System%20IFU.pdf"
+  },
+  {
+   "label": "Reline Fenestrated Screw System",
+   "slug": "RELINE FENESTRATED",
+   "title": "Reline Fenestrated Screw System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401ED980C6D2FE98564102&compId=9402646-EN%20IFU%20Rev%20A%20Reline%20Fenestrated%20Screw%20System%20IFU.pdf"
+  },
+  {
+   "label": "Radian Facet Screw System",
+   "slug": "Radian",
+   "title": "Radian Facet Screw System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED8AFA216138CDEA0FA&compId=9401140-EN%20IFU%20Rev%20E%20Final%20Copy%20-%20Radian%20Facet%20Screw%20System%20IFU.pdf"
+  },
+  {
+   "label": "Reline System",
+   "slug": "Reline System",
+   "title": "Reline System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201FD1A2EF404D7917E1A4&compId=9401879-EN%20IFU%20Rev%20S%20Reline%20System%20IFU.pdf"
+  },
+  {
+   "label": "Simplify Disc Accessory Kit",
+   "slug": "SIMPLIFY ACCESSORY KIT",
+   "title": "Simplify Disc Accessory Kit IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361EDBB69DA25DE8F72132&compId=32187_F_IFU,%20accessory%20kit,%20USA%20PMA.pdf"
+  },
+  {
+   "label": "Simplify Disc, 1- and 2-level",
+   "slug": "SIMPLIFY IMPLANTS",
+   "title": "Simplify Disc, 1 + 2 Level IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDFB7D42ABB9D9DE190&compId=Simplify%20IFU_32226_Rev%20G.pdf"
+  },
+  {
+   "label": "Simplify Disc Instrument Set",
+   "slug": "SIMPLIFY INS SET",
+   "title": "Simplify Disc Instrument Set IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1EDE8FBDCF15544FC176&compId=32186-EN%20IFU%20Rev%20J%20Final%20Copy%20-%20Simplify%20Disc%20Instrument%20Set%20IFU.pdf"
+  },
+  {
+   "label": "Simplify Disc Patient Labeling",
+   "slug": "SIMPLIFY PATIENT LABELING",
+   "title": "Simplify Patient Labeling 1-2 Level",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619201EDFB7D438BC6FF06190&compId=Simplify%20Disc%20Patient%20Labeling%2032235F.pdf"
+  },
+  {
+   "label": "Simplify Disc Surgical Technique Guide",
+   "slug": "SIMPLIFY STG",
+   "title": "Simplify Surgical Tech Guide 1-2 Level",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568677011EDCBC8DCCE3CCD60150&compId=Simplify%20STG%20US%2032227_C.pdf"
+  },
+  {
+   "label": "SpheRx Spinal System",
+   "slug": "SpheRx",
+   "title": "SpheRx Spinal System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=00505686183D1ED8AFAC4157C8E9C0FD&compId=9003905-EN%20IFU%20Rev%20P%20Final%20Copy%20-%20SpheRx%20Spinal%20System%20IFU.pdf"
+  },
+  {
+   "label": "Disposable Stimulating Electrode",
+   "slug": "Stimulating Electrode",
+   "title": "Disposable Stimulating Electrode IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568679401ED99299D4903B674105&compId=9401074-EN%20IFU%20Rev%20E%20Final%20Copy%20-%20Disposable%20Stimulating%20Electrode%20IFU.pdf"
+  },
+  {
+   "label": "Stimulation-Dissection Instruments",
+   "slug": "Stimulation Instruments",
+   "title": "Stimulation/Dissection Instruments IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568614B71ED8AF9322F3A24780F1&compId=9401638-EN%20IFU%20Rev%20D%20Final%20Copy%20-%20Stimulation-Dissection%20Instruments%20IFU.pdf"
+  },
+  {
+   "label": "StruXure Spinal System",
+   "slug": "StruXure",
+   "title": "StruXure Spinal System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED8AFA1FE60C16700FA&compId=9401312-EN%20IFU%20Rev%20H%20Final%20Copy%20-%20StruXure%20Spinal%20System%20IFU.pdf"
+  },
+  {
+   "label": "TLX Interbody System",
+   "slug": "TLX",
+   "title": "TLX Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1EDE95FDD53EAAE5C17C&compId=9402203-EN%20IFU%20Rev%20E%20Final%20Copy-%20-%20TLX%20Interbody%20System%20IFU.pdf"
+  },
+  {
+   "label": "Titanium Surgical Mesh",
+   "slug": "Ti Mesh",
+   "title": "Titanium Surgical Mesh System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1ED8ACB21A6296F440FE&compId=9002961-EN%20IFU%20Rev%20N%20Review%20Copy%20-%20Titanium%20Surgical%20Mesh%20IFU.pdf"
+  },
+  {
+   "label": "Traverse Plate System",
+   "slug": "Traverse",
+   "title": "Traverse Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568619A61EDAAD9CF91C2D8CE110&compId=9400555-EN%20IFU%20Rev%20K%20Final%20Copy%20-%20Traverse%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "VersaTie System",
+   "slug": "VersaTie System",
+   "title": "VersaTie System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1ED8AFD4AE1E9061C0FF&compId=9402303-EN%20IFU%20Rev%20B%20Final%20Copy%20-%20VersaTie%20System%20IFU.pdf"
+  },
+  {
+   "label": "VuePoint OCT System",
+   "slug": "VuePoint",
+   "title": "VuePoint OCT System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568614B71ED8AFBF733CC33260F1&compId=9400215-EN%20IFU%20Rev%20N%20Final%20Copy%20-%20VuePoint%20OCT%20System%20IFU.pdf"
+  },
+  {
+   "label": "X-Core iVBR System",
+   "slug": "X-CORE IVBR",
+   "title": "X-CORE iVBR System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED8AFA02EC7924920FA&compId=9402094-EN%20IFU%20Rev%20C%20Final%20Copy%20-%20X-Core%20iVBR%20System%20IFU.pdf"
+  },
+  {
+   "label": "X-Core Expandable VBR System",
+   "slug": "X-Core",
+   "title": "X-Core Expandable VBR System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568624FA1EDD9CB62AE4D34F215B&compId=9400903-EN%20IFU%20Rev%20M%20Final%20Copy-X-Core%20Expandable%20VBR%20System%20IFU.pdf"
+  },
+  {
+   "label": "XLP Lateral Plate System",
+   "slug": "XLP",
+   "title": "XLP Lateral Plate System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=0050568616361ED8B090CB63C48660FA&compId=9500062-EN%20IFU%20Rev%20K%20Final%20Copy%20-%20XLP%20Lateral%20Plate%20System%20IFU.pdf"
+  },
+  {
+   "label": "XLX ACR Interbody System",
+   "slug": "XLX ACR",
+   "title": "XLX ACR Interbody System IFU",
+   "url": "https://atlasapi.nuvasive.com/public/ifu/documents/retrieve?get&pVersion=0046&contRep=ZNUVEP1&docId=005056860AAC1ED897D5D567F5B480FA&compId=9402658-EN%20IFU%20Rev%20A%20XLX%20ACR%20Interbody%20System%20IFU.pdf"
+  }
+ ]
+}
