@@ -85,6 +85,40 @@ def _fetch(url: str, data: bytes | None = None) -> str:
     raise AtecPortalError("retries exhausted")
 
 
+def _resolve_pdf_url(download_url: str) -> str:
+    """Follow the /download/ route to the real PDF and store THAT.
+
+    The archive links at /download/<slug>/?wpdmdl=<id>, which 302s to a permanent file under
+    /wp-content/uploads/. Storing the redirect would break serving outright: the answerer
+    decides how to fetch a document with _is_direct_pdf_url(), whose test is "does the path
+    end in .pdf". A /download/ URL fails that and falls into the e-ifu.com VIEWER branch --
+    it logs into e-ifu and tries to parse an Alphatec page as an e-ifu viewer, yielding zero
+    pages and zero hits for every Alphatec device, while fetching the URL by hand works fine.
+
+    Resolving here rather than teaching the answerer about this one portal keeps the stored
+    URL the same shape as every other resolver's, and costs one HEAD per document, once.
+    """
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+            raise _Redirected(newurl)
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(download_url, headers=HEADERS, method="HEAD")
+    try:
+        with opener.open(req, timeout=45):
+            return download_url          # no redirect: already final
+    except _Redirected as hop:
+        return urllib.parse.urljoin(download_url, hop.url)
+    except Exception:                     # noqa: BLE001 - keep the original on any failure
+        return download_url
+
+
+class _Redirected(Exception):
+    def __init__(self, url: str) -> None:
+        super().__init__(url)
+        self.url = url
+
+
 def _session() -> tuple[str, str]:
     """Scrape the nonce and sc_params the archive AJAX requires."""
     page = _fetch(PORTAL)
@@ -128,7 +162,10 @@ def build_index(verbose: bool = True) -> dict[str, Any]:
             if not title or title.lower() == "download" or url in seen:
                 continue
             seen.add(url)
-            index["products"].append({"label": title, "title": title, "url": url})
+            time.sleep(0.7)
+            index["products"].append({
+                "label": title, "title": title, "url": _resolve_pdf_url(url),
+            })
         if verbose:
             print(f"  page {page_no}/{last}: {len(cards)} cards ({len(index['products'])} docs)")
         page_no += 1

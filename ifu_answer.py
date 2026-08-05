@@ -479,9 +479,25 @@ def _is_auth_exc(exc: BaseException) -> bool:
 
 
 def _is_direct_pdf_url(url: str) -> bool:
+    """Whether to fetch this URL directly rather than through the e-ifu viewer.
+
+    The alternative branch is not a generic "viewer" path — it logs into e-ifu.com, decodes
+    an e-ifu viewer page and extracts the PDF link from it. It is meaningful for e-ifu URLs
+    and for nothing else. Testing only "does the path end in .pdf" sent every other
+    manufacturer's non-.pdf URL down it, where it fetched an Alphatec or Siemens page,
+    parsed it as an e-ifu viewer, and returned zero pages and zero hits — indistinguishable
+    from a device whose IFU genuinely lacks the section, which is how it went unnoticed.
+    Fetching those URLs by hand works fine.
+
+    So scope the viewer to its own host and treat every other host as direct. This also
+    covers portals whose PDF route carries no .pdf path at all, such as NuVasive's
+    /public/ifu/documents/retrieve.
+    """
     parsed = urllib.parse.urlparse(url)
     path = parsed.path.lower()
-    return path.endswith(".pdf") or "/fetchpdf/" in path
+    if path.endswith(".pdf") or "/fetchpdf/" in path:
+        return True
+    return urllib.parse.urlparse(BASE_URL).netloc not in parsed.netloc
 
 
 def _title_from_url(url: str) -> str | None:
