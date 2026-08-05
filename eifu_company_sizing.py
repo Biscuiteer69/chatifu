@@ -106,6 +106,12 @@ def main() -> None:
     ap.add_argument("--db", default=str(SQLITE_PATH))
     ap.add_argument("--delay", type=float, default=4.0, help="seconds between company probes")
     ap.add_argument("--per-batch", type=int, default=40)
+    ap.add_argument("--once", action="store_true",
+                    help="Run a single batch and exit, for the fleet supervisor to loop. "
+                         "e-ifu.com allows ONE fleet worker at a time (DEFAULT_HOST_LIMIT), "
+                         "shared with the J&J scrape; running this standalone alongside the "
+                         "fleet would double the request rate on the host that has WAF-banned "
+                         "us before.")
     args = ap.parse_args()
 
     ensure_table(args.db)
@@ -117,6 +123,8 @@ def main() -> None:
         if not rows:
             print(f"sizing complete: {total} companies checked, {covered_n} covered")
             return
+        # Header the fleet's batch_re parses to tell "worked N" from "backlog dry".
+        print(f"Sizing {len(rows)} companies", flush=True)
         for row in rows:
             # probe_id is the catalog number where GUDID supplies one and the model number
             # otherwise; the portal is searched the same way for both.
@@ -143,6 +151,9 @@ def main() -> None:
             elif total % 50 == 0:
                 print(f"[{total}] checked… {covered_n} covered so far")
             time.sleep(args.delay)
+        if args.once:
+            print(f"batch done: {total} companies checked, {covered_n} covered")
+            return
 
 
 if __name__ == "__main__":

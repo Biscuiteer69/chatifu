@@ -226,6 +226,27 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 600, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
+    # Company sizing: ONE probe per never-probed company, to learn who is on e-ifu at all.
+    # It reported "complete" at 5,646 of 11,585 companies because it required a catalog
+    # number; the other 5,855 (1.12M devices) carry only a model number and were never asked
+    # about. Their coverage is not recorded even as unknown, so the sweep above cannot target
+    # them however long it runs.
+    #
+    # Belongs in the fleet rather than as a standalone background run precisely because
+    # e-ifu.com allows ONE worker: run loose alongside the fleet it would double the request
+    # rate on the host that has WAF-banned this IP before. Here it simply takes its turn.
+    #
+    # Ranked LAST of the three e-ifu targets. It is reconnaissance, not coverage — nothing it
+    # writes serves a clinician a document — so it yields to work that does. Its value is that
+    # every company it clears stops the sweep guessing.
+    "eifu_sizing": {
+        "enabled": True, "rank": 3, "host": "e-ifu.com",
+        "cmd": [PY, str(VAULT / "eifu_company_sizing.py"), "--once",
+                "--per-batch", "25", "--delay", "6"],
+        "batch_re": re.compile(r"Sizing (\d+) companies"),
+        "sleep_between": 600, "idle_sleep": 24 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
 }
 
 # WAF / rate-limit fingerprints in a batch's output -> back off hard.
