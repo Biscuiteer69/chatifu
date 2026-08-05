@@ -240,6 +240,15 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 3600,
         "max_backoff": 2 * 3600,
     },
+    # NuVasive is Globus-owned but publishes separately, so it is its own target on its own
+    # host. globus_resolver deliberately does not claim these devices.
+    "nuvasive": {
+        "enabled": True, "rank": 19, "host": "nuvasive.com",
+        "cmd": [PY, "-m", "resolvers.nuvasive_resolver", "--batch", "4000"],
+        "batch_re": re.compile(r"Resolving (\d+) NuVasive devices"),
+        "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 3600,
+        "max_backoff": 2 * 3600,
+    },
     "alphatec": {
         "enabled": True, "rank": 19, "host": "atecspine.com",
         "cmd": [PY, "-m", "resolvers.atec_resolver", "--batch", "4000"],
