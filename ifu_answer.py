@@ -79,6 +79,23 @@ _GENERIC_QUERY_TERMS = frozenset({
     "use", "used", "using", "instructions", "ifu", "information", "document",
 })
 
+# A passage that names the section only to send the reader somewhere else is not an
+# answer, however many of the question's words it contains. Generic instrument IFUs are
+# full of these -- Zimmer's INSTRUMENT/PROVISIONAL USE, CARE AND STERILIZATION says
+# "consult that system's labeling for the detailed indications, contraindications,
+# performance characteristics" -- and they score HIGHER than real passages precisely
+# because they list every section name at once. Two spot-check failures were this.
+#
+# Matched per sentence, not per page: an IFU that answers the question and also points
+# at a companion document is fine, and a page-level test would throw it away.
+_REFERRAL_RE = re.compile(
+    r"\b(consult|refer\s+to|see|as\s+described\s+in|listed\s+in|provided\s+(?:in|with)|"
+    r"supplied\s+with|accompanying)\b[^.]{0,120}?"
+    r"\b(labell?ing|package\s+insert|instructions?\s+for\s+use|ifu|"
+    r"product\s+literature|documentation|user\s+manual|operator'?s?\s+manual)\b",
+    re.IGNORECASE,
+)
+
 ParsedPage = str | tuple[int, str]
 
 
@@ -658,6 +675,8 @@ def search_pages(
             continue
         if distinctive and not any(t in low for t in distinctive):
             continue  # generic-only match on a section-intent query -> skip
+        if distinctive and _is_referral_only(text, distinctive):
+            continue  # names the section only to point elsewhere -> not an answer
         coverage = sum(1 for t in unique_terms if t in low)
         if coverage < min_coverage:
             continue
@@ -673,6 +692,32 @@ def search_pages(
 
     scored_hits.sort(key=lambda item: (-item[0], -item[1], item[2]))
     return [hit for _coverage, _occurrences, _page_num, hit in scored_hits[:max_hits]]
+
+
+def _is_referral_only(text: str, distinctive: list[str]) -> bool:
+    """True when every mention of what was asked about only points somewhere else.
+
+    Dropped rather than demoted, for the same reason the relevance floor above drops
+    generic-only matches: these pages outscore real ones (they name several sections in a
+    single sentence), so demotion inside one document still leaves them winning whenever
+    that document is the only one on file -- which is exactly the failing case. Returning
+    nothing lets the caller try another document and, failing that, say so honestly.
+
+    Conservative by construction: one sentence that discusses the section directly is
+    enough to keep the page, so an IFU that answers the question and also cross-references
+    a companion document is unaffected.
+    """
+    # Lowercase the terms too, not just the text. The keyword pass supplies query terms
+    # already lowercased, but the section pass supplies its target headings UPPERCASE
+    # ("CONTRAINDICATIONS"), which matched nothing and silently disabled the guard on the
+    # one pass where it matters most -- that pass scores on the heading, so a referral
+    # under a matching heading gets the highest score in the system.
+    wanted = [t.lower() for t in distinctive]
+    mentions = [s for s in re.split(r"(?<=[.;])\s+", text)
+                if any(t in s.lower() for t in wanted)]
+    if not mentions:
+        return False
+    return all(_REFERRAL_RE.search(s) for s in mentions)
 
 
 def _page_number_and_text(i: int, page: ParsedPage) -> tuple[int, str]:
@@ -1067,6 +1112,14 @@ def _section_aware_search(
                         if _section_name_matches(section_name, target):
                             heading_end = pos + len(raw_line)
                             body = _extract_section_body(pages, i, heading_end)
+                            # A matching heading is not the same as an answer. Generic
+                            # instrument IFUs carry the heading and then hand the reader
+                            # off ("consult that system's labeling for the detailed
+                            # indications, contraindications..."), and because this pass
+                            # scores on the HEADING it ranked those top -- the strongest
+                            # possible score for a passage containing no answer.
+                            if body and _is_referral_only(body, [target]):
+                                break
                             if body:
                                 low = body.lower()
                                 snippet, _ = _best_snippet_and_anchor(body, low, terms)
