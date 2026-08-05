@@ -191,10 +191,17 @@ class SmithNephewResolver:
         conn = sqlite3.connect(self.db_path, timeout=60.0)
         try:
             if not docs:
+                # Upsert, not insert: a document-less row may already exist from a transient
+                # http_error/timeout this retry is settling, or from another resolver that
+                # matched the same catalog. A plain insert trips the partial unique index
+                # idx_ifu_unique_catalog_outcome and aborts the batch.
                 conn.execute(
                     """insert into ifu_links (device_rowid, primary_di, catalog_number,
                        manufacturer_family, source_url, status, first_seen_at, last_checked_at)
-                       values(?,?,?,?,?,?,?,?)""",
+                       values(?,?,?,?,?,?,?,?)
+                       on conflict(catalog_number) where document_url is null do update set
+                         status='not_found', last_checked_at=excluded.last_checked_at,
+                         error_type=null""",
                     (rowid, primary_di, ref, MANUFACTURER_FAMILY, PORTAL, "not_found", now, now))
             for doc in docs:
                 conn.execute(

@@ -149,10 +149,18 @@ def log(rowid: int, primary_di: str | None, catalog: str, docs: list[dict],
     conn = sqlite3.connect(db_path, timeout=60.0)
     try:
         if not docs:
+            # A catalog can already carry a document-less row: a transient http_error/timeout
+            # that this retry is meant to settle, or a not_found written by another resolver
+            # when two company patterns both match. A plain insert violates the partial unique
+            # index idx_ifu_unique_catalog_outcome and aborts the whole batch, so upsert onto
+            # it and let the retry record the terminal outcome it just measured.
             conn.execute(
                 """insert into ifu_links (device_rowid, primary_di, catalog_number,
                    manufacturer_family, source_url, status, first_seen_at, last_checked_at)
-                   values(?,?,?,?,?,?,?,?)""",
+                   values(?,?,?,?,?,?,?,?)
+                   on conflict(catalog_number) where document_url is null do update set
+                     status='not_found', last_checked_at=excluded.last_checked_at,
+                     error_type=null""",
                 (rowid, primary_di, catalog, MANUFACTURER_FAMILY, BASE, "not_found", now, now))
         for doc in docs:
             conn.execute(
