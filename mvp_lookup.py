@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -271,21 +272,100 @@ def format_human(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# Words a clinician types around the device, never to identify it. Left in the query they
+# are actively harmful under OR semantics: "medtronic gia stapler isnt working can you help
+# me troubleshoot it" matched Curbell products on the token "it", because several of their
+# model numbers contain ",IT,".
+_SEARCH_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "am", "im", "i",
+    "isnt", "arent", "wasnt", "doesnt", "dont", "cant", "wont",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
+    "can", "may", "might", "shall", "must", "need", "want",
+    "what", "which", "who", "whom", "whose", "where", "when", "why", "how",
+    "this", "that", "these", "those", "it", "its", "they", "them", "their",
+    "you", "your", "we", "our", "us", "me", "my", "mine", "he", "she", "his", "her",
+    "in", "on", "at", "to", "for", "of", "with", "by", "from", "up", "out", "off",
+    "and", "or", "but", "if", "then", "than", "so", "as", "not", "no",
+    "help", "please", "troubleshoot", "trouble", "shoot", "shooting", "fix", "fixing",
+    "working", "work", "works", "broken", "issue", "issues", "problem", "problems",
+    "error", "errors", "question", "about", "regarding", "using", "use", "used",
+    "get", "getting", "got", "show", "find", "looking", "look", "tell", "know",
+})
+
+# bm25 weights, one per devices_fts column, in declared order. Higher counts for more.
+#
+# The identifiers dominate because a clinician typing one has named exactly one device.
+# company_name and parent_company are deliberately the LOWEST: matching the maker alone is
+# the weakest possible evidence, and treating it as strong is precisely what surfaced an
+# arbitrary Medtronic spinal system for a stapler query. Description sits in the middle --
+# "stapler" is real evidence, but weaker than naming the brand.
+_BM25_WEIGHTS = (
+    10.0,   # brand_name
+    8.0,    # company_name
+    8.0,    # parent_company
+    2.0,    # device_description
+    12.0,   # catalog_number
+    12.0,   # model_number
+)
+# Tuned against the 14 cross-maker queries in tests/test_device_search.py, not chosen by
+# feel: 1.0/4.0 and 3.0/4.0 and 6.0/2.5 all scored 13/14, and only 8.0/2.0 gets "stryker hip
+# stem" right. The case that decides it is instructive — a competitor's extraction tool whose
+# GUDID description reads "Tip, Modular Stem, Stryker" was beating Stryker's own hip stems,
+# because a maker's name mentioned in a DESCRIPTION counted for more than the maker actually
+# being that company. Naming the manufacturer has to outweigh being mentioned by one.
+#
+# Weighting the company highly is safe here in a way it was not before, because ranking now
+# exists at all. The original failure was not that company matching was strong; it was that
+# every Medtronic device tied on company alone and the winner fell out of ORDER BY brand_name.
+# bm25 still scores a device matching brand+description+company far above one matching only
+# the company, so "medtronic gia stapler" cannot degenerate into "any Medtronic device".
+
+
+# Demotes devices with no IFU on file. bm25() scores are NEGATIVE and sorted ascending, so
+# scaling toward zero pushes a row DOWN the list; 0.6 is enough to lose a tie without letting
+# a covered but poorly-matching device outrank a clearly-correct one.
+#
+# A penalty rather than a filter, deliberately. A device we hold no IFU for is still the right
+# answer to "do you have this?", and hiding it would turn a coverage gap into a product that
+# looks like it has never heard of the device.
+_NO_IFU_PENALTY = 0.6
+
+
+def search_terms(query: str) -> list[str]:
+    """The parts of a query that identify a device.
+
+    Punctuation is stripped so "stapler?" and "stapler" are one term, and single characters
+    are dropped as too unselective to be worth an OR arm.
+    """
+    cleaned = re.sub(r"[^\w\s-]", " ", query.lower())
+    terms = [t.strip("-") for t in cleaned.split()]
+    kept = [t for t in terms if len(t) > 1 and t not in _SEARCH_STOP_WORDS]
+    # A query made entirely of stop words is more likely to be an odd device name than a
+    # sentence with nothing in it, so fall back to the raw tokens rather than returning none.
+    return kept or [t for t in terms if t]
+
+
 def search_devices(
     query: str,
     db_path: str | Path = SQLITE_PATH,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """
-    FTS5 full-text search over brand_name, company_name, catalog_number.
-    Falls back to OR semantics when AND returns nothing, then LIKE.
+    """FTS5 search over brand, company, parent company, description and identifiers.
+
+    Tries to satisfy every meaningful term first, then relaxes to ANY term -- but the relaxed
+    pass is ranked by bm25, so a device matching all three of "medtronic gia stapler" still
+    beats one matching only "medtronic". The old code relaxed the same way and then ordered
+    alphabetically, which threw that information away: every Medtronic device tied, and the
+    winner was whichever brand sorted first (" TSRH® Spinal System", on a leading space).
     """
     query = query.strip()
     if not query or not Path(db_path).exists():
         return []
     conn = db_connect(db_path)
     try:
-        terms = [fts_phrase(t) for t in query.split() if t]
+        terms = [fts_phrase(t) for t in search_terms(query)]
+        if not terms:
+            return []
         rows = _fts_query(conn, " ".join(terms), limit)
         if not rows and len(terms) > 1:
             rows = _fts_query(conn, " OR ".join(terms), limit)
@@ -299,18 +379,24 @@ def search_devices(
 def _fts_query(
     conn: sqlite3.Connection, fts_expr: str, limit: int
 ) -> list[dict[str, Any]]:
+    """Matching rows, best first.
+
+    Queries devices_fts directly and joins back, rather than the previous `rowid IN
+    (subquery)`: bm25() is only available on the row being scanned, so a subquery cannot
+    rank, which is why the old version had to fall back to ordering by brand name.
+    """
     try:
         rows = conn.execute(
             """
             SELECT d.brand_name, d.company_name, d.catalog_number, d.model_number
-            FROM devices d
-            WHERE d.rowid IN (
-                SELECT rowid FROM devices_fts WHERE devices_fts MATCH ?
-            )
-            ORDER BY d.brand_name
+            FROM devices_fts f
+            JOIN devices d ON d.rowid = f.rowid
+            WHERE devices_fts MATCH ?
+            ORDER BY bm25(devices_fts, ?, ?, ?, ?, ?, ?)
+                     * (CASE WHEN d.has_ifu = 1 THEN 1.0 ELSE ? END)
             LIMIT ?
             """,
-            (fts_expr, limit),
+            (fts_expr, *_BM25_WEIGHTS, _NO_IFU_PENALTY, limit),
         ).fetchall()
         return [dict(row) for row in rows]
     except sqlite3.OperationalError:
@@ -332,7 +418,16 @@ def fts_phrase(term: str) -> str:
 def _like_query(
     conn: sqlite3.Connection, query: str, limit: int
 ) -> list[dict[str, Any]]:
-    pattern = f"%{query}%"
+    """Last-resort scan when FTS returns nothing.
+
+    Matches the most selective TERM, not the whole query string. As a literal substring a
+    multi-word query can essentially never match a field -- "echelon stapler" is not a
+    substring of any brand name -- so this fallback silently returned nothing for exactly
+    the multi-word queries that needed it. The longest term is used because it is the most
+    specific and the cheapest to exclude rows with.
+    """
+    terms = sorted(search_terms(query), key=len, reverse=True)
+    pattern = f"%{terms[0] if terms else query}%"
     rows = conn.execute(
         """
         SELECT brand_name, company_name, catalog_number, model_number

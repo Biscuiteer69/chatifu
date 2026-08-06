@@ -97,6 +97,17 @@ def main() -> None:
             log.write(f"[{now.isoformat()}] sleeping {args.loop_sleep}s before next batch\n")
         sleep_time.sleep(args.loop_sleep)
 
+    # Refresh the search index's derived columns after the night's scraping. has_ifu decides
+    # whether a device is ranked as answerable, and it is computed from ifu_links, so without
+    # this every device the fleet resolved overnight keeps being demoted in search as though
+    # we still had nothing for it.
+    steps.append(run_step(
+        "search_index_refresh",
+        [sys.executable, str(VAULT_DIR / "migrate_search_index.py")],
+        log_path,
+        5400,
+    ))
+
     status = {
         "status": "ok" if all(step["exit_code"] == 0 for step in steps) else "error",
         "log": str(log_path),

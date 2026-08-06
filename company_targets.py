@@ -239,3 +239,33 @@ def target_by_key(key: str) -> dict[str, object]:
 
 def implemented_targets() -> list[str]:
     return [str(target["key"]) for target in TOP_DEVICE_TARGETS if target["adapter"] != "planned"]
+
+
+# --- Search-only parent aliases -------------------------------------------------------
+#
+# Subsidiaries whose GUDID company_name carries no trace of the parent a clinician would
+# name. A beta tester searching "medtronic gia stapler" got nothing relevant partly because
+# the GIA stapler's company is "Covidien LP"; the same class of miss hides Stryker's entire
+# orthopaedics line, which GUDID files under "Howmedica Osteonics Corp".
+#
+# DELIBERATELY SEPARATE from each target's `company_patterns`. Those drive the scraper fleet:
+# widening one tells a resolver it owns those catalogs, and if that maker's portal does not
+# actually publish them the fleet writes not_found rows, which are permanent false negatives
+# no later pass revisits. Whether Stryker's portal serves Howmedica catalogs is unverified,
+# so search learns the relationship now and acquisition stays unchanged until it is tested.
+#
+# Only well-established corporate ownership belongs here, and only where the subsidiary name
+# does not already contain the parent's (Medtronic Sofamor Danek needs no alias; Covidien
+# does).
+SEARCH_PARENT_ALIASES: list[tuple[str, tuple[str, ...]]] = [
+    ("Stryker",   ("%howmedica%", "%osteonics%", "%k2m%")),
+    ("Abbott",    ("%st. jude%", "%st jude%")),
+    ("Medtronic", ("%covidien%", "%valleylab%", "%sofamor%")),
+    ("Johnson & Johnson", ("%depuy%", "%synthes%", "%ethicon%", "%mentor%",
+                           "%biosense%", "%acclarent%", "%cerenovus%", "%abiomed%")),
+    ("Zimmer Biomet", ("%biomet%",)),
+    ("BD",        ("%c.r. bard%", "%c r bard%", "%bard %")),
+    ("Baxter",    ("%hillrom%", "%hill-rom%", "%welch allyn%")),
+    ("B. Braun",  ("%aesculap%",)),
+    ("Globus Medical", ("%nuvasive%",)),
+]

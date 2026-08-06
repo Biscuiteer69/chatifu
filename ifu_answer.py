@@ -607,15 +607,54 @@ def _parse_pdf_limited(pdf_bytes: bytes, question: str) -> list[tuple[int, str]]
     return pages
 
 
+# Above this many words a "page" is not one language's page — it is a multi-language sheet
+# holding every market's translation at once, and a whole-page English ratio says nothing
+# about whether the English section is there.
+_MULTILINGUAL_PAGE_WORDS = 3000
+
+
+def _english_ratio(text: str) -> float:
+    words = [w for w in re.split(r"\W+", text.lower()) if w]
+    if not words:
+        return 0.0
+    return sum(1 for w in words if w in _ENGLISH_WORDS) / len(words)
+
+
 def _is_english_page(text: str) -> bool:
-    """Return True if >= 20% of words are common English function words."""
+    """Whether this page may contain the English answer.
+
+    A whole-page ratio works for the usual single-language booklet and fails completely on
+    the combined multi-language sheets Medtronic/Covidien publish: the Endo GIA Ultra IFU is
+    two pages of ~177,000 characters covering roughly 25 languages, so English is a few
+    percent of the words and the page was discarded — English section and all. Every Covidien
+    stapler answered nothing for this reason, which is what a beta tester hit.
+
+    So the page test only rejects pages small enough to BE one language. Larger pages are
+    admitted and the language judgement moves to the passage actually selected, via
+    _is_english_passage — the level at which it was always the real question.
+    """
     words = [w for w in re.split(r"\W+", text.lower()) if w]
     if not words:
         return False
     if len(words) < 6:
         return True
-    english_count = sum(1 for w in words if w in _ENGLISH_WORDS)
-    return (english_count / len(words)) >= 0.20
+    if len(words) > _MULTILINGUAL_PAGE_WORDS:
+        return True
+    return (sum(1 for w in words if w in _ENGLISH_WORDS) / len(words)) >= 0.20
+
+
+def _is_english_passage(snippet: str) -> bool:
+    """Whether the passage we are about to show a clinician is English.
+
+    Applied to the extracted snippet rather than its page, so a translation sitting beside
+    the English text in the same multi-language document cannot be highlighted. The bar is
+    lower than the page test because a snippet is short and a single sentence carries fewer
+    function words.
+    """
+    words = [w for w in re.split(r"\W+", snippet.lower()) if w]
+    if len(words) < 6:
+        return True
+    return _english_ratio(snippet) >= 0.12
 
 
 def _split_sentences(text: str) -> list[tuple[int, int]]:
@@ -698,6 +737,8 @@ def search_pages(
             continue
         occurrences = sum(low.count(t) for t in unique_terms)
         snippet, anchor = _best_snippet_and_anchor(text, low, terms)
+        if not _is_english_passage(snippet):
+            continue   # a translation sitting beside the English text on a combined sheet
         section = _extract_section(text, anchor) or "Relevant IFU passage"
         scored_hits.append((
             coverage,
@@ -1141,6 +1182,8 @@ def _section_aware_search(
                                 snippet, _ = _best_snippet_and_anchor(body, low, terms)
                                 if not snippet:
                                     snippet = _clean_snippet(body[:400])
+                                if not _is_english_passage(snippet):
+                                    break
                                 hits.append(AnswerHit(
                                     page=page_num,
                                     snippet=snippet,

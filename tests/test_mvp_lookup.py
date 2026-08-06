@@ -189,23 +189,30 @@ class SearchDevicesTests(unittest.TestCase):
         try:
             conn.executescript(
                 """
+                -- Mirrors the real schema, including the columns migrate_search_index.py
+                -- adds. The fixture previously described the pre-migration table, so the
+                -- ranked query errored, was swallowed, and every assertion here was really
+                -- testing the LIKE fallback rather than the search being shipped.
                 CREATE TABLE devices (
                     id TEXT PRIMARY KEY,
                     company_name TEXT,
                     brand_name TEXT,
                     model_number TEXT,
                     catalog_number TEXT,
-                    raw_json TEXT NOT NULL DEFAULT '{}'
+                    raw_json TEXT NOT NULL DEFAULT '{}',
+                    device_description TEXT,
+                    parent_company TEXT,
+                    has_ifu INTEGER NOT NULL DEFAULT 0
                 );
-                INSERT INTO devices VALUES ('1','ETHICON ENDO-SURGERY, LLC','ECHELON','ECH60S','ECH60S','{}');
-                INSERT INTO devices VALUES ('2','ETHICON ENDO-SURGERY, LLC','ECHELON ENDOPATH','ECR60T','ECR60T','{}');
-                INSERT INTO devices VALUES ('3','JOHNSON & JOHNSON SURGICAL VISION, INC.','SMARTLOAD','GIB00','GIB00U0340','{}');
+                INSERT INTO devices VALUES ('1','ETHICON ENDO-SURGERY, LLC','ECHELON','ECH60S','ECH60S','{}','Surgical stapler','Johnson & Johnson',1);
+                INSERT INTO devices VALUES ('2','ETHICON ENDO-SURGERY, LLC','ECHELON ENDOPATH','ECR60T','ECR60T','{}','Endoscopic stapler','Johnson & Johnson',0);
+                INSERT INTO devices VALUES ('3','JOHNSON & JOHNSON SURGICAL VISION, INC.','SMARTLOAD','GIB00','GIB00U0340','{}','Lens delivery system','Johnson & Johnson',0);
                 CREATE VIRTUAL TABLE devices_fts USING fts5(
-                    brand_name, company_name, catalog_number,
+                    brand_name, company_name, parent_company, device_description,
+                    catalog_number, model_number,
                     content='devices', content_rowid='rowid'
                 );
-                INSERT INTO devices_fts(rowid, brand_name, company_name, catalog_number)
-                    SELECT rowid, brand_name, company_name, catalog_number FROM devices;
+                INSERT INTO devices_fts(devices_fts) VALUES('rebuild');
                 """
             )
             conn.commit()

@@ -82,7 +82,13 @@ class AnswerContract(unittest.TestCase):
 
     @patch("api._resolve_ifu_url", return_value="https://e-ifu.com/doc/123")
     def test_answer_shape(self, _resolve) -> None:
-        with patch.object(api, "_get_answerer") as get_ans:
+        # pdf_proxy_path only pins document_url when the catalog HAS servable documents,
+        # so this has to be stubbed. Left unstubbed the test read the live database, where
+        # catalog 17-0186 no longer has any ifu_links rows, and it had been failing on that
+        # rather than on anything about the response contract.
+        servable = [{"document_url": "https://e-ifu.com/doc/123", "document_title": "Widget IFU"}]
+        with patch.object(api, "_get_answerer") as get_ans, \
+                patch("api.get_servable_ifu_documents", return_value=servable):
             get_ans.return_value.answer.return_value = make_answer()
             resp = self.client.post(
                 "/answer",
