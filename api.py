@@ -330,9 +330,11 @@ def create_app() -> FastAPI:
             # ourselves minted an hour ago — including one held in the answer
             # cache. The document is then re-minted below rather than served
             # from the caller's (possibly expired) signature.
+            company, model = _device_keys(catalog)
             match = next(
                 (
-                    doc for doc in get_servable_ifu_documents(catalog)
+                    doc for doc in get_servable_ifu_documents(
+                        catalog, company_name=company, model_number=model)
                     if _stable_url_key(str(doc["document_url"])) == _stable_url_key(document_url)
                 ),
                 None,
@@ -506,6 +508,18 @@ def _stable_url_key(url: str) -> tuple[str, str, str]:
     return (parts.scheme, parts.netloc, parts.path)
 
 
+def _device_keys(catalog: str) -> tuple[str | None, str | None]:
+    """(company, model) for a device — what `get_servable_ifu_documents` needs to
+    widen a lookup safely. The company vouches for the manufacturer, without which
+    no punctuation-insensitive match is accepted; the model is how the spine makers
+    key their documents, so a catalog-only lookup never finds them."""
+    try:
+        device = get_device(catalog) or {}
+    except Exception:  # noqa: BLE001 - a lookup failure must not break serving
+        return None, None
+    return device.get("company_name"), device.get("model_number")
+
+
 def _best_answer_across_documents(
     catalog: str,
     question: str,
@@ -519,7 +533,9 @@ def _best_answer_across_documents(
     each document and keep the strongest hit: a matching section heading
     (SCORE_SECTION_HEADING) beats mere keyword coverage.
     """
-    docs = get_servable_ifu_documents(catalog, limit=MAX_DOCS_PER_ANSWER)
+    company, model = _device_keys(catalog)
+    docs = get_servable_ifu_documents(catalog, limit=MAX_DOCS_PER_ANSWER,
+                                      company_name=company, model_number=model)
     if not docs:
         # Nothing cached — fall back to the single-document path, which resolves
         # on demand and raises 404/502 with the right detail if that fails.

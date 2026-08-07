@@ -61,37 +61,161 @@ def table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table_name})")}
 
 
-def fetch_ifu_rows(catalog_number: str, db_path: str | Path = SQLITE_PATH) -> list[dict[str, Any]]:
+def table_columns_all(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    """Including GENERATED columns — `table_info` silently omits them, so checking a
+    generated column's existence with it reports False for a column that is there."""
+    try:
+        return {str(row[1]) for row in conn.execute(f"PRAGMA table_xinfo({table_name})")}
+    except sqlite3.Error:
+        return table_columns(conn, table_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Catalog-format matching
+#
+# GUDID and the manufacturer portals punctuate the same part number differently:
+# GUDID holds Stryker `45-20004` where the portal indexes `4520004`, and Synthes
+# `02007026` where e-ifu.com indexes `02.007.026`. Matching the raw string alone
+# leaves ~249k devices whose IFU we already hold unreachable.
+#
+# Stripping punctuation to compare is only safe WITH a manufacturer check. Real
+# example: GUDID device `62-00620` is a Stryker Leibinger part, and `62006-20` in
+# our own table is Alphatec's Zodiac spine implant — same digits, different maker,
+# and serving one for the other would put the wrong surgical instructions in front
+# of a clinician. 180 normalized keys are claimed by more than one maker family.
+# So a punctuation-insensitive match is accepted ONLY when the device's company
+# resolves to the same manufacturer family as the document.
+# ─────────────────────────────────────────────────────────────────────────────
+
+MIN_CATALOG_KEY_LEN = 6   # short keys collide by chance; mirrors MIN_PORTAL_TERM_LEN
+
+# manufacturer_family -> the GUDID company-name fragments that belong to it.
+# Subsidiaries matter: Synthes/DePuy file under J&J, Wright Medical under Stryker,
+# St. Jude under Abbott, Aesculap under B. Braun.
+FAMILY_COMPANY_HINTS: dict[str, tuple[str, ...]] = {
+    "medtronic": ("medtronic", "covidien"),
+    "johnson_and_johnson": ("johnson", "depuy", "synthes", "ethicon", "mentor",
+                            "cerenovus", "biosense", "acclarent", "gynecare"),
+    "stryker": ("stryker", "wright medical", "howmedica", "k2m", "leibinger"),
+    "zimmer_biomet": ("zimmer", "biomet"),
+    "abbott": ("abbott", "st. jude", "st jude"),
+    "boston_scientific": ("boston scientific",),
+    "b_braun": ("b. braun", "b.braun", "braun melsungen", "aesculap"),
+    "smith_nephew": ("smith & nephew", "smith and nephew", "smith+nephew"),
+    "siemens": ("siemens",),
+    "edwards": ("edwards lifesciences",),
+    "arthrex": ("arthrex",),
+    "alphatec_spine": ("alphatec", "atec spine"),
+    "nuvasive": ("nuvasive",),
+    "globus_medical": ("globus medical",),
+    "fresenius_kabi": ("fresenius",),
+    "baxter": ("baxter", "hill-rom", "hillrom", "welch allyn"),
+    "coopersurgical": ("coopersurgical", "cooper surgical"),
+}
+
+
+def catalog_key(value: str | None) -> str:
+    """Punctuation-insensitive form of a catalog number. Must stay in step with the
+    `catalog_key` generated column on ifu_links (same separators, same casing)."""
+    if not value:
+        return ""
+    out = str(value).upper()
+    for ch in ("-", ".", "/", " ", "_"):
+        out = out.replace(ch, "")
+    return out
+
+
+def family_for_company(company_name: str | None) -> str | None:
+    """Which manufacturer family a GUDID company belongs to, or None if unknown.
+    None means we cannot vouch for a punctuation-insensitive match."""
+    if not company_name:
+        return None
+    name = str(company_name).lower()
+    for family, hints in FAMILY_COMPANY_HINTS.items():
+        if any(h in name for h in hints):
+            return family
+    return None
+
+
+def _select_rows(conn: sqlite3.Connection, where: str, param: str) -> list[dict[str, Any]]:
+    columns = table_columns(conn, "ifu_links")
+    if not columns:
+        return []
+    source_expr = "source_file_name" if "source_file_name" in columns else "NULL AS source_file_name"
+    family_expr = "manufacturer_family" if "manufacturer_family" in columns else "NULL AS manufacturer_family"
+    rows = conn.execute(
+        f"""
+        SELECT
+            catalog_number,
+            status,
+            match_confidence,
+            document_title,
+            document_url,
+            language,
+            revision,
+            {source_expr},
+            {family_expr},
+            retrieved_at,
+            last_checked_at
+        FROM ifu_links
+        WHERE {where}
+        ORDER BY id
+        """,
+        (param,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def fetch_ifu_rows(
+    catalog_number: str,
+    db_path: str | Path = SQLITE_PATH,
+    company_name: str | None = None,
+    model_number: str | None = None,
+) -> list[dict[str, Any]]:
+    """Rows for a device. Exact catalog match first — that is always safe. If that
+    yields no servable document, retry punctuation-insensitively on the catalog and
+    then on the model number, in both cases only for documents belonging to this
+    device's own manufacturer.
+
+    The model fallback is the one that matters at scale. The spine makers publish
+    against the model number, so their documents are stored under it: 169,615
+    devices — most of Nuvasive, Alphatec, Globus and Medtronic Sofamor Danek — hold
+    an IFU we already have but were unreachable through a catalog-only lookup.
+    """
     if not Path(db_path).exists():
         return []
     conn = db_connect(db_path)
     try:
-        columns = table_columns(conn, "ifu_links")
-        if not columns:
-            return []
-        source_expr = "source_file_name" if "source_file_name" in columns else "NULL AS source_file_name"
-        family_expr = "manufacturer_family" if "manufacturer_family" in columns else "NULL AS manufacturer_family"
-        rows = conn.execute(
-            f"""
-            SELECT
-                catalog_number,
-                status,
-                match_confidence,
-                document_title,
-                document_url,
-                language,
-                revision,
-                {source_expr},
-                {family_expr},
-                retrieved_at,
-                last_checked_at
-            FROM ifu_links
-            WHERE catalog_number = ?
-            ORDER BY id
-            """,
-            (catalog_number,),
-        ).fetchall()
-        return [dict(row) for row in rows]
+        rows = _select_rows(conn, "catalog_number = ?", catalog_number)
+        # Fall through on a `not_found` outcome row, not merely on no row at all.
+        # The common shape is exactly that: a resolver probed the GUDID catalog
+        # `45-20004`, failed, and wrote not_found — while the document had been
+        # stored under the portal's `4520004`. Returning the not_found row as the
+        # last word is what kept ~249k devices dark.
+        if any(r.get("status") == "found" and r.get("document_url") for r in rows):
+            return rows
+
+        family = family_for_company(company_name)
+        if not family:
+            return rows   # unknown maker — cannot vouch for anything but an exact hit
+        if "catalog_key" not in table_columns_all(conn, "ifu_links"):
+            return rows   # migration not applied; exact matching only
+
+        seen = {(r.get("catalog_number"), r.get("document_url")) for r in rows}
+        extra: list[dict[str, Any]] = []
+        for candidate in (catalog_number, model_number):
+            key = catalog_key(candidate)
+            if len(key) < MIN_CATALOG_KEY_LEN:
+                continue
+            for row in _select_rows(conn, "catalog_key = ?", key):
+                ident = (row.get("catalog_number"), row.get("document_url"))
+                if ident in seen or (row.get("manufacturer_family") or "") != family:
+                    continue
+                seen.add(ident)
+                extra.append(row)
+            if any(r.get("status") == "found" and r.get("document_url") for r in extra):
+                break   # the catalog answered; no need to widen to the model
+        return rows + extra
     finally:
         conn.close()
 
@@ -571,6 +695,8 @@ def get_servable_ifu_documents(
     catalog_number: str,
     db_path: str | Path = SQLITE_PATH,
     limit: int | None = None,
+    company_name: str | None = None,
+    model_number: str | None = None,
 ) -> list[dict[str, Any]]:
     """Every verified document for a catalog, best-ranked first.
 
@@ -581,7 +707,8 @@ def get_servable_ifu_documents(
     an authentic document that may not answer the question, so callers search
     across the set and keep the document that actually contains the answer.
     """
-    rows = [r for r in fetch_ifu_rows(catalog_number, db_path) if r.get("document_url")]
+    rows = [r for r in fetch_ifu_rows(catalog_number, db_path, company_name, model_number)
+            if r.get("document_url")]
     rows = [r for r in rows if r.get("status") == "found"]
     rows.sort(key=row_priority)
     deduped: list[dict[str, Any]] = []
