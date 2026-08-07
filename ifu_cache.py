@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 DEFAULT_CACHE_DIR = Path("/home/biscuited/.biscuited/hermes/DGX/cache/ifu_docs")
@@ -165,8 +166,39 @@ class IFUDocumentCache:
             raise ValueError("Refusing to cache non-PDF IFU document")
 
 
+# Query parameters that change on every re-mint and say nothing about WHICH document
+# this is. Stryker and Zimmer serve from presigned S3, and the signature rotates every
+# few hours — so keying the cache on the full URL gave a fresh key each time, the cache
+# never hit, and every request went back to the network. When the stored link had
+# expired that surfaced as "PDF fetch failed: HTTP Error 403" — 21 of the 33 logged
+# tester misses, still happening. It also re-cached the same PDF under a new key each
+# time, which is how the cache reached 22.9 GB across 25,934 files.
+#
+# Only these are dropped. The query is the document's IDENTITY nearly everywhere else:
+# 405,110 of 743,564 stored documents carry one — wpdmdl (Alphatec), docId/compId/
+# contRep/pVersion (NuVasive's SAP ArchiveLink), document-id (Siemens). Dropping the
+# whole query would collapse those onto a handful of path-only keys and hand back
+# another device's IFU. Order is preserved rather than sorted, so every key already in
+# the cache stays valid.
+_VOLATILE_QUERY_PREFIXES = ("x-amz-",)
+_VOLATILE_QUERY_KEYS = frozenset({"response-content-disposition", "response-content-type"})
+
+
+def _is_volatile_param(key: str) -> bool:
+    low = key.lower()
+    return low.startswith(_VOLATILE_QUERY_PREFIXES) or low in _VOLATILE_QUERY_KEYS
+
+
 def _normalize_url(url: str) -> str:
-    return " ".join((url or "").strip().split())
+    cleaned = " ".join((url or "").strip().split())
+    parts = urlsplit(cleaned)
+    if not parts.query:
+        return cleaned
+    kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if not _is_volatile_param(k)]
+    if len(kept) == len(parse_qsl(parts.query, keep_blank_values=True)):
+        return cleaned   # nothing volatile — leave the string exactly as it was
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept), ""))
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
