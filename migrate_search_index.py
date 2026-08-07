@@ -32,9 +32,19 @@ import time
 from pathlib import Path
 
 import company_targets as CT
+import mvp_lookup as ML
 
 VAULT = Path(__file__).resolve().parent
 DB = VAULT / "chatifu.sqlite3"
+
+
+def _KEY_SQL(column: str) -> str:
+    """SQL form of mvp_lookup.catalog_key — must strip the same separators, or the
+    index and the serving path disagree about what counts as answerable."""
+    expr = f"coalesce({column}, '')"
+    for ch in ("-", ".", "/", " ", "_"):
+        expr = f"replace({expr}, '{ch}', '')"
+    return f"upper({expr})"
 
 
 def add_columns(conn: sqlite3.Connection) -> None:
@@ -71,16 +81,58 @@ def fill_has_ifu(conn: sqlite3.Connection) -> None:
         "where status = 'found' and document_url is not null"
     )
     conn.execute("create index temp.covered_cc on covered(cc)")
-    cur = conn.execute(
+
+    # Punctuation-insensitive coverage, carrying the owning manufacturer. This mirrors
+    # get_servable_ifu_documents: it will widen a lookup past the exact string, but only
+    # to a document belonging to the device's OWN maker. Marking a device answerable on
+    # any looser rule than serving uses is the bug this function exists to prevent —
+    # search would promote a device that then answers "no official IFU found".
+    conn.execute("drop table if exists temp.covered_key")
+    conn.execute(
+        f"""
+        create temp table covered_key as
+        select distinct {_KEY_SQL('catalog_number')} kk, manufacturer_family fam
+        from ifu_links
+        where status = 'found' and document_url is not null
+          and length({_KEY_SQL('catalog_number')}) >= {ML.MIN_CATALOG_KEY_LEN}
+          and manufacturer_family is not null
+        """
+    )
+    conn.execute("create index temp.covered_key_kk on covered_key(kk, fam)")
+
+    # company -> manufacturer family, resolved once per distinct company (11.6k) rather
+    # than per device (5M). Same mapping serving uses, so the two cannot drift.
+    conn.execute("drop table if exists temp.company_family")
+    conn.execute("create temp table company_family (company text primary key, fam text)")
+    companies = [r[0] for r in conn.execute(
+        "select distinct company_name from devices where company_name is not null")]
+    pairs = [(c, ML.family_for_company(c)) for c in companies]
+    conn.executemany("insert or replace into company_family values (?, ?)",
+                     [(c, f) for c, f in pairs if f])
+
+    exact = conn.execute(
         """
         update devices set has_ifu = 1
         where coalesce(nullif(trim(catalog_number), ''), nullif(trim(model_number), ''))
               in (select cc from covered)
         """
-    )
+    ).rowcount
+    widened = conn.execute(
+        f"""
+        update devices set has_ifu = 1
+        where has_ifu = 0
+          and exists (
+            select 1 from company_family cf
+            join covered_key ck on ck.fam = cf.fam
+            where cf.company = devices.company_name
+              and ck.kk in ({_KEY_SQL('devices.catalog_number')},
+                            {_KEY_SQL('devices.model_number')})
+          )
+        """
+    ).rowcount
     conn.commit()
-    print(f"  has_ifu: {cur.rowcount:,} devices answerable "
-          f"in {time.monotonic() - started:.0f}s")
+    print(f"  has_ifu: {exact + widened:,} devices answerable "
+          f"({exact:,} exact + {widened:,} maker-vouched) in {time.monotonic() - started:.0f}s")
 
 
 def fill_descriptions(conn: sqlite3.Connection) -> None:

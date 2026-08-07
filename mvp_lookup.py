@@ -93,7 +93,11 @@ MIN_CATALOG_KEY_LEN = 6   # short keys collide by chance; mirrors MIN_PORTAL_TER
 # Subsidiaries matter: Synthes/DePuy file under J&J, Wright Medical under Stryker,
 # St. Jude under Abbott, Aesculap under B. Braun.
 FAMILY_COMPANY_HINTS: dict[str, tuple[str, ...]] = {
-    "medtronic": ("medtronic", "covidien"),
+    # ev3 came in with Covidien and is genuinely Medtronic's neurovascular line.
+    # Almost every other unmapped company that collides with a stored number is a
+    # coincidence, not a missing subsidiary (Oticon hearing aids landing on a Globus
+    # spine number, Sklar/Boss instruments on Stryker), so this list stays conservative.
+    "medtronic": ("medtronic", "covidien", "ev3"),
     "johnson_and_johnson": ("johnson", "depuy", "synthes", "ethicon", "mentor",
                             "cerenovus", "biosense", "acclarent", "gynecare"),
     "stryker": ("stryker", "wright medical", "howmedica", "k2m", "leibinger"),
