@@ -184,9 +184,14 @@ def ensure_source_file_name_column(db_path: str | Path) -> None:
     conn = sqlite3.connect(db_path, timeout=30.0)
     try:
         columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(ifu_links)")}
-        if "source_file_name" not in columns:
-            with conn:
+        with conn:
+            if "source_file_name" not in columns:
                 conn.execute("ALTER TABLE ifu_links ADD COLUMN source_file_name TEXT")
+            # Re-minting a sibling-inferred row looks up the portal-asserted row holding the
+            # same file (mvp_lookup.refresh_document_url); without this it scans 2.5M rows.
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ifu_source_file ON ifu_links(source_file_name)"
+            )
     finally:
         conn.close()
 

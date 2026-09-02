@@ -31,7 +31,12 @@ STATUS_PRIORITY = {
     # (the catalog found nothing). Ranked last among verified tiers: it rests on
     # the portal's applicability metadata rather than on text we can inspect.
     ("found", "model_portal_match"): 3,
-    ("candidate_broad", "search_result"): 4,
+    # Copied from a resolved sibling: same GUDID company + brand, and either the same FDA
+    # submission or a brand the portal answered unanimously for (resolvers/sibling_inference.py).
+    # A real manufacturer IFU, but one no portal asserted for THIS identifier, so it ranks
+    # below every portal-asserted tier and above anything unverified.
+    ("found", "sibling_inferred"): 4,
+    ("candidate_broad", "search_result"): 5,
     # An FDA 510(k)/PMA summary. Ranked below EVERY manufacturer-sourced tier, including an
     # unverified one, because it is a different kind of document: it carries indications and
     # intended use but no instructions, warnings or contraindications. It is a floor, not a
@@ -41,9 +46,9 @@ STATUS_PRIORITY = {
     # which happened to be 5 — the SAME rank as not_found, with ties broken by title string.
     # That is accidental rather than intended ordering, and it made "we hold a regulatory
     # summary" indistinguishable from "we hold nothing" at ~1.09M catalogs.
-    ("fda_summary", "fda_submission"): 5,
-    ("not_found", None): 6,
-    ("not_found", ""): 6,
+    ("fda_summary", "fda_submission"): 6,
+    ("not_found", None): 7,
+    ("not_found", ""): 7,
 }
 DEFAULT_WARNING = (
     "ChatIFU searches manufacturer IFU sources. "
@@ -238,13 +243,13 @@ def row_priority(row: dict[str, Any]) -> tuple[int, str]:
     if (status, confidence) in STATUS_PRIORITY:
         priority = STATUS_PRIORITY[(status, confidence)]
     elif status in ERROR_STATUSES:
-        # Ranked LAST, not 4. An error row records a failed attempt and carries no document —
+        # Ranked LAST. An error row records a failed attempt and carries no document —
         # measured: all 2,128 of them have an empty document_url, so one can never be served.
-        # At 4 it outranked fda_summary (5) and tied candidate_broad, and on 864 catalogs that
-        # meant returning nothing while a usable document sat one row lower.
-        priority = 8
+        # When it once tied candidate_broad and outranked fda_summary, 864 catalogs returned
+        # nothing while a usable document sat one row lower.
+        priority = 9
     else:
-        priority = 7
+        priority = 8
     return priority, str(row.get("document_title") or row.get("document_url") or "")
 
 
@@ -696,6 +701,22 @@ def refresh_document_url(row: dict[str, Any], db_path: str | Path = SQLITE_PATH)
                 conn.close()
             if hit and hit[0]:
                 terms.insert(0, str(hit[0]).strip())
+        if row.get("match_confidence") == "sibling_inferred":
+            # The portal never indexed THIS identifier; the file was found under a sibling's.
+            # Ask with the sibling's REF (a portal-asserted row holding the same file).
+            conn = db_connect(db_path)
+            try:
+                sibling = conn.execute(
+                    "select catalog_number from ifu_links where source_file_name = ? "
+                    "and manufacturer_family = ? and status = 'found' "
+                    "and match_confidence in ('exact_catalog', 'brand_match') "
+                    "order by id limit 1",
+                    (str(source_file_name), family),
+                ).fetchone()
+            finally:
+                conn.close()
+            if sibling and sibling[0]:
+                terms.insert(0, str(sibling[0]))
         fresh = None
         for term in terms:
             fresh = resolver.fresh_document_url(term, str(source_file_name))
