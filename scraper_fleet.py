@@ -252,6 +252,18 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 30, "idle_sleep": 24 * 3600, "batch_timeout": 1800,
         "max_backoff": 2 * 3600,
     },
+    # Olympus / Gyrus ACMI: the olympus-europa.com Solr index mirrored in ~16 requests and
+    # joined to GUDID offline on exact model / catalog equality. Every run re-scans ALL
+    # 6,953 devices (the resolver keeps no per-device "attempted" state, so `Resolving N`
+    # never reaches 0 and the fleet would never idle it).
+    # index mirror; run once via cron rather than as a fleet loop
+    "olympus": {
+        "enabled": False, "rank": 20, "host": "olympus-europa.com",
+        "cmd": [PY, "-m", "resolvers.olympus_resolver", "--apply"],
+        "batch_re": re.compile(r"Resolving (\d+) olympus devices"),
+        "sleep_between": 30, "idle_sleep": 7 * 24 * 3600, "batch_timeout": 1800,
+        "max_backoff": 2 * 3600,
+    },
     # Company sizing: ONE probe per never-probed company, to learn who is on e-ifu at all.
     # It reported "complete" at 5,646 of 11,585 companies because it required a catalog
     # number; the other 5,855 (1.12M devices) carry only a model number and were never asked
