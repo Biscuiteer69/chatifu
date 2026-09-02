@@ -26,6 +26,7 @@ registered with host "qarad" so HOST_LIMITS caps their combined concurrency.
 Usage:
     python -m resolvers.qarad_tenants --tenant baxter --batch 25
     python -m resolvers.qarad_tenants --tenant baxter --catalog 2B8001
+    python -m resolvers.qarad_tenants --tenant highridge --refresh-index   # mirrored tenants
     python -m resolvers.qarad_tenants --list
 """
 from __future__ import annotations
@@ -47,12 +48,16 @@ from resolvers.eifu_resolver import (
     DeviceRef,
     classify_error,
 )
+from resolvers import family_portal as FP
 from resolvers.stryker_resolver import (
+    BASE_URL,
     BLOCK_BACKOFF_SEC,
     MAX_CONSECUTIVE_BLOCKS,
     StrykerResolver,
     WafBlocked,
     item_matches_catalog,
+    normalize_ref,
+    refs_from_item,
 )
 
 # tenant -> origin, (business_unit, product_type) pairs to try, GUDID company patterns.
@@ -151,7 +156,132 @@ TENANTS: dict[str, dict] = {
         # so one request per MODEL resolves the whole catalogue at a tenth of the cost.
         "search_key": "model",
     },
+    "highridge": {
+        # Zimmer Biomet's spine business became Highridge Medical (2024) and took its eIFU
+        # with it: labeling.zimmerbiomet.com answers Biomet Spine / Zimmer Spine REFs with a
+        # stub ("Zimvie - Dummy") and this tenant holds the real documents. GUDID still files
+        # the devices under the old names, which is why 60k of them sat as zimmer_biomet
+        # not_found for months.
+        "origin": "https://ifu.highridgemedical.com",
+        "units": [(1, 4)],                      # Highridge / MEDDEV
+        "patterns": ["%biomet spine%", "%zimmer spine%", "%highridge%", "%ldr spine%", "%zimvie%"],
+        "label": "Highridge",
+        # MIRRORED: the platform enumerates the whole catalogue when cross-field-search is
+        # the empty string (32,494 products, 325 pages; the "a" wildcard misses 7k). The
+        # mirror is joined to GUDID offline by UDI-DI and REF, so every request the tenant
+        # makes is a product-detail call for a device the portal is KNOWN to hold: one
+        # request per document, zero misses, and absent devices cost nothing. Per-REF
+        # searching would be 2 requests per device with a ~45% miss rate on the same WAF.
+        "mirror": True,
+    },
 }
+
+
+def mirror_products(resolver: "QaradTenantResolver", bu: int, pt: int,
+                    page_size: int = 100) -> list[dict]:
+    """Every product of one business unit / product type, as the family-portal index shape.
+
+    `label` is the product name (family_portal's index report groups on it), `ref`/`di` are
+    the join keys, and the rest is what ifu_documents() needs to fetch the detail later
+    without searching again."""
+    products: list[dict] = []
+    page, total = 0, None
+    while total is None or page < total:
+        payload = {
+            "currentDate": datetime.now(timezone.utc).date().isoformat(),
+            "attributes": [{"slug": "cross-field-search", "value": ""}],
+            "country": resolver.country,
+        }
+        data = resolver._request(
+            f"{BASE_URL}/business-units/{bu}/product-types/{pt}/products"
+            f"?audience=HCP&page={page}&size={page_size}", payload=payload)
+        total = int((data.get("pageable") or {}).get("totalPages") or 0)
+        for item in data.get("items") or []:
+            attrs = {str(a.get("name") or ""): a.get("value") for a in item.get("attributes") or []}
+            refs = refs_from_item(item)
+            products.append({
+                "label": str(attrs.get("Product Description - Name") or item.get("keyCode") or ""),
+                "id": item.get("id"), "keyCode": item.get("keyCode"),
+                "businessUnit": item.get("businessUnit"), "productType": item.get("productType"),
+                "ref": refs[0].strip() if refs else None,
+                "di": str(attrs.get("UDI-DI number") or "").strip() or None,
+                "attributes": item.get("attributes") or [],
+            })
+        page += 1
+        if page % 25 == 0:
+            print(f"  mirror {page}/{total} pages, {len(products)} products")
+    return products
+
+
+def load_mirror(tenant: str, refresh: bool = False, db_path: str | Path = SQLITE_PATH) -> dict:
+    cfg = TENANTS[tenant]
+
+    def build() -> dict:
+        resolver = QaradTenantResolver(tenant, db_path=db_path)
+        products: list[dict] = []
+        for bu, pt in cfg["units"]:
+            products.extend(mirror_products(resolver, bu, pt))
+        return {"built_at": datetime.now(timezone.utc).isoformat(), "products": products}
+
+    return FP.load_index(tenant, build, refresh=refresh)
+
+
+def mirror_lookup(products: list[dict]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """(by UDI-DI, by normalised REF). First product wins on a duplicate key."""
+    by_di: dict[str, dict] = {}
+    by_ref: dict[str, dict] = {}
+    for product in products:
+        if product.get("di"):
+            by_di.setdefault(product["di"], product)
+        key = normalize_ref(product.get("ref") or "")
+        if key:
+            by_ref.setdefault(key, product)
+    return by_di, by_ref
+
+
+def load_mirror_devices(tenant: str, limit: int, products: list[dict],
+                        db_path: str | Path = SQLITE_PATH) -> tuple[list[tuple[sqlite3.Row, dict | None]], int]:
+    """(device, mirrored product or None) for the next `limit` unresolved devices.
+
+    The identifier is the catalog number, or the model when GUDID has no catalog (the
+    spine makers' habit); ifu_links.catalog_number stores whichever was used. Rows written
+    by OTHER families are ignored on purpose: these devices already carry zimmer_biomet
+    not_found rows from the stub portal, and honouring them would hide the whole backlog.
+    Returns the count of pending devices too, so the batch line can say how far there is
+    to go."""
+    cfg = TENANTS[tenant]
+    patterns = cfg["patterns"]
+    by_di, by_ref = mirror_lookup(products)
+    where = " or ".join(["lower(d.company_name) like ?"] * len(patterns))
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f"""
+            select d.rowid as rowid, d.company_name, d.brand_name, d.model_number,
+                   d.catalog_number, d.raw_json,
+                   coalesce(nullif(trim(d.catalog_number), ''), nullif(trim(d.model_number), '')) as ident
+            from devices d
+            where ({where})
+              and coalesce(nullif(trim(d.catalog_number), ''), nullif(trim(d.model_number), '')) is not null
+              and not exists (
+                select 1 from ifu_links l
+                where l.catalog_number = coalesce(nullif(trim(d.catalog_number), ''), nullif(trim(d.model_number), ''))
+                  and (l.status = 'found' or l.manufacturer_family = ?)
+              )
+            order by d.company_name, d.catalog_number, d.model_number
+            """,
+            (*patterns, tenant),
+        ).fetchall()
+    finally:
+        conn.close()
+    pending = len(rows)
+    out: list[tuple[sqlite3.Row, dict | None]] = []
+    for row in rows[:limit]:
+        raw = json.loads(row["raw_json"]) if row["raw_json"] else {}
+        product = by_di.get(str(raw.get("PrimaryDI") or "").strip()) or by_ref.get(normalize_ref(row["ident"]))
+        out.append((row, product))
+    return out, pending
 
 
 def ensure_hint_table(db_path: str | Path = SQLITE_PATH) -> None:
@@ -265,6 +395,36 @@ class QaradTenantResolver(StrykerResolver):
             raise last_exc
         return []
 
+    def resolve_mirrored(self, row: sqlite3.Row, product: dict | None) -> list[dict]:
+        """One product-detail request for a device the mirror holds; none for one it does not.
+
+        The mirror (see TENANTS[...]["mirror"]) is the tenant's complete catalogue, so a
+        device absent from it is a real miss and is recorded without touching the portal.
+        A present one skips the search: the mirror already carries the product id, and the
+        product's own UDI-DI or REF is what matched the device, so the hit is exact_catalog
+        on the same evidence item_matches_catalog demands."""
+        raw = json.loads(row["raw_json"]) if row["raw_json"] else {}
+        source_url = f"{self.ORIGIN}/hcp/{self.country}"
+        error_type = None
+        documents: list[dict] = []
+        status = NOT_FOUND_STATUS
+        if product is not None:
+            item = {key: product.get(key) for key in ("id", "keyCode", "businessUnit", "productType", "attributes")}
+            try:
+                documents = self.ifu_documents(item)
+                status = FOUND_STATUS if documents else NOT_FOUND_STATUS
+            except WafBlocked:
+                raise
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                status, error_type = classify_error(exc)
+            except Exception as exc:  # noqa: BLE001
+                status, error_type = INIT_FAILED_STATUS, type(exc).__name__
+        self.log_results(
+            DeviceRef(row["rowid"], raw.get("PrimaryDI"), row["ident"], row["model_number"]),
+            source_url, documents, status, error_type=error_type,
+        )
+        return documents
+
     def resolve_model_group(self, company: str, model: str, members: list[sqlite3.Row]) -> list[dict]:
         """One portal search by MODEL, written to every catalog that carries that model.
 
@@ -374,6 +534,8 @@ def main() -> int:
     ap.add_argument("--catalog", help="Resolve a single catalog number.")
     ap.add_argument("--list", action="store_true", help="Show configured tenants.")
     ap.add_argument("--no-db", action="store_true")
+    ap.add_argument("--refresh-index", action="store_true",
+                    help="Mirrored tenants: rebuild the catalogue mirror now (~325 requests).")
     args = ap.parse_args()
 
     if args.list:
@@ -388,6 +550,36 @@ def main() -> int:
 
     label = TENANTS[args.tenant]["label"]
     resolver = QaradTenantResolver(args.tenant)
+
+    if TENANTS[args.tenant].get("mirror"):
+        products = load_mirror(args.tenant, refresh=args.refresh_index)["products"]
+        if not args.batch:
+            print(f"mirror: {len(products):,} products")
+            return 0
+        pairs, pending = load_mirror_devices(args.tenant, args.batch, products)
+        held = sum(1 for _r, p in pairs if p)
+        print(f"Resolving {len(pairs)} {label} devices ({held} on the portal; {pending:,} pending)")
+        found = blocks = 0
+        for index, (row, product) in enumerate(pairs, 1):
+            try:
+                docs = resolver.resolve_mirrored(row, product)
+            except WafBlocked as exc:
+                blocks += 1
+                if blocks >= MAX_CONSECUTIVE_BLOCKS:
+                    print(f"blocked {blocks}x — stopping at {index}/{len(pairs)}. Resolved {found}. "
+                          f"Blocked devices were not marked; retry later.")
+                    return 0
+                wait = BLOCK_BACKOFF_SEC * blocks
+                print(f"[{index}/{len(pairs)}] {exc} — backing off {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            blocks = 0
+            if docs:
+                found += 1
+            if index % 25 == 0 or docs:
+                print(f"[{index}/{len(pairs)}] {row['ident']}: {len(docs)} docs (found {found})")
+        print(f"done: {found}/{len(pairs)} devices resolved ({held} were on the portal)")
+        return 0
 
     if args.catalog:
         docs = resolver.resolve(args.catalog, log_to_db=not args.no_db)

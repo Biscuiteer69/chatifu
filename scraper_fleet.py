@@ -176,6 +176,19 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
+    # Highridge Medical = Zimmer Biomet's former spine business, on its own Qarad tenant with
+    # the documents the zimmer_biomet stub portal lacks (60k Biomet Spine / Zimmer Spine / LDR
+    # GUDID devices). MIRRORED tenant: the catalogue is enumerated once (325 requests, cached
+    # 14 days in runs/highridge_ifu_index.json) and joined to GUDID offline, so a batch is one
+    # product-detail request per device the portal is KNOWN to hold and zero for the rest.
+    # Ranked with the other small tenants so it rotates through the second qarad slot.
+    "highridge": {
+        "enabled": True, "rank": 14, "host": "qarad",
+        "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "highridge", "--batch", "40"],
+        "batch_re": re.compile(r"Resolving (\d+) Highridge devices"),
+        "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
+        "max_backoff": 4 * 3600,
+    },
     # --- e-ifu.com targets. UNLIKE every other target, these two share ONE host
     #     (and one WAF budget) with each other, so the per-site isolation the rest
     #     of the fleet relies on does NOT hold here. Their combined request rate is

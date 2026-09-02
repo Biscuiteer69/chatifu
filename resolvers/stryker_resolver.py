@@ -91,6 +91,7 @@ REF_ATTRIBUTE_NAMES = (
     "ref",
     "model number",      # Alcon — its products carry a model, not a REF; without this every
     "model",             # hit fell through to keyCode (an internal id) and was rejected.
+    "reference - catalog number",   # Highridge (ex Zimmer Biomet Spine)
 )
 # Tenants name the IFU document group differently and the differences are trivial but fatal:
 # Stryker "Instructions For Use", Arthrex "Directions For Use", Baxter "Instruction for Use"
@@ -510,6 +511,12 @@ class StrykerResolver:
                         ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         on conflict(catalog_number) where document_url is null
                         do update set
+                            -- The latest portal to answer owns the miss. Without this a
+                            -- Highridge miss left the row labelled zimmer_biomet, so the
+                            -- mirrored loader never saw the device as settled and re-drew
+                            -- it every batch.
+                            manufacturer_family = excluded.manufacturer_family,
+                            source_url = excluded.source_url,
                             status = excluded.status,
                             last_checked_at = excluded.last_checked_at,
                             last_success_at = excluded.last_success_at,
