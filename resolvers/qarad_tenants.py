@@ -37,12 +37,22 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from resolvers.eifu_resolver import SQLITE_PATH
+import urllib.error
+
+from resolvers.eifu_resolver import (
+    FOUND_STATUS,
+    INIT_FAILED_STATUS,
+    NOT_FOUND_STATUS,
+    SQLITE_PATH,
+    DeviceRef,
+    classify_error,
+)
 from resolvers.stryker_resolver import (
     BLOCK_BACKOFF_SEC,
     MAX_CONSECUTIVE_BLOCKS,
     StrykerResolver,
     WafBlocked,
+    item_matches_catalog,
 )
 
 # tenant -> origin, (business_unit, product_type) pairs to try, GUDID company patterns.
@@ -133,6 +143,13 @@ TENANTS: dict[str, dict] = {
         # collide with real Alcon products.
         "patterns": ["%alcon laboratories%"],
         "label": "Alcon",
+        # The portal indexes the MODEL, not GUDID's catalog. An Alcon IOL is one model
+        # (SA6AT4) sold in ~100 diopter powers, and GUDID stores each power as its own
+        # catalog (SA6AT4.320). Searching the catalog returned 0 for 300 straight devices
+        # and got the tenant disabled; searching the model hits (SA6AT4, SN6AT6, PXCAT4,
+        # CCAET0 all resolved on 2026-09-02). 1,157 distinct models cover all 9,162 devices,
+        # so one request per MODEL resolves the whole catalogue at a tenth of the cost.
+        "search_key": "model",
     },
 }
 
@@ -173,7 +190,9 @@ class QaradTenantResolver(StrykerResolver):
         # resolve() is inherited and calls search() without the company, so the
         # current device's company is carried here rather than rewriting resolve().
         self.current_company: str | None = None
-        super().__init__(**kwargs)
+        # db_path must reach the parent: setting it above and then calling super() without it
+        # silently reset every write to the production DB (a test with tmp_path found out).
+        super().__init__(db_path=db_path, **kwargs)
         if len(self._units) > 1:
             ensure_hint_table(self.db_path)
             self._load_hints()
@@ -246,6 +265,77 @@ class QaradTenantResolver(StrykerResolver):
             raise last_exc
         return []
 
+    def resolve_model_group(self, company: str, model: str, members: list[sqlite3.Row]) -> list[dict]:
+        """One portal search by MODEL, written to every catalog that carries that model.
+
+        For a model-keyed tenant (see TENANTS[...]["search_key"]) the catalog is a sub-variant
+        the portal has never heard of, so the search term is the model and the hit is confirmed
+        against the model the same way item_matches_catalog confirms a REF. Each member catalog
+        gets its own ifu_links row — the client sends catalog_number first, so a row keyed by
+        the model alone would not be servable — under model_portal_match, never exact_catalog:
+        the portal asserted the model, and the catalog->model link is GUDID's, not the maker's.
+        A miss is written to every member too, so the group is never re-searched."""
+        self.current_company = company
+        source_url = f"{self.ORIGIN}/hcp/{self.country}"
+        error_type = None
+        documents: list[dict] = []
+        try:
+            matches = [item for item in self.search(model, company)
+                       if item_matches_catalog(item, model)]
+            for item in matches:
+                documents.extend(self.ifu_documents(item))
+            status = FOUND_STATUS if documents else NOT_FOUND_STATUS
+        except WafBlocked:
+            raise
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            status, error_type = classify_error(exc)
+        except Exception as exc:  # noqa: BLE001
+            status, error_type = INIT_FAILED_STATUS, type(exc).__name__
+        for document in documents:
+            document["match_confidence"] = "model_portal_match"
+        for row in members:
+            raw = json.loads(row["raw_json"]) if row["raw_json"] else {}
+            self.log_results(
+                DeviceRef(row["rowid"], raw.get("PrimaryDI"), row["catalog_number"], model),
+                source_url, [dict(d) for d in documents], status, error_type=error_type,
+            )
+        return documents
+
+
+def load_model_groups(tenant: str, limit: int, db_path: str | Path = SQLITE_PATH) -> list[tuple[str, str, list[sqlite3.Row]]]:
+    """(company, model, member devices) for the next `limit` models with any unresolved catalog.
+
+    Biggest groups first: one request on a 106-power IOL model settles 106 devices."""
+    cfg = TENANTS[tenant]
+    patterns = cfg["patterns"]
+    where = " or ".join(["lower(d.company_name) like ?"] * len(patterns))
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f"""
+            select d.rowid, d.company_name, d.brand_name, d.model_number,
+                   d.catalog_number, d.raw_json
+            from devices d
+            where d.catalog_number is not null and trim(d.catalog_number) != ''
+              and d.model_number is not null and trim(d.model_number) != ''
+              and ({where})
+              and not exists (
+                select 1 from ifu_links l
+                where l.catalog_number = d.catalog_number
+                  and l.status in ('found', 'candidate_broad', 'not_found')
+              )
+            """,
+            patterns,
+        ).fetchall()
+    finally:
+        conn.close()
+    groups: dict[tuple[str, str], list[sqlite3.Row]] = {}
+    for row in rows:
+        groups.setdefault((row["company_name"], row["model_number"].strip()), []).append(row)
+    ordered = sorted(groups.items(), key=lambda kv: -len(kv[1]))[:limit]
+    return [(company, model, members) for (company, model), members in ordered]
+
 
 def load_devices(tenant: str, limit: int, db_path: str | Path = SQLITE_PATH) -> list[sqlite3.Row]:
     cfg = TENANTS[tenant]
@@ -305,6 +395,35 @@ def main() -> int:
         return 0
     if not args.batch:
         ap.error("--batch or --catalog is required")
+
+    if TENANTS[args.tenant].get("search_key") == "model":
+        groups = load_model_groups(args.tenant, args.batch)
+        n_devices = sum(len(m) for _c, _m, m in groups)
+        # Same "Resolving N <label> devices" line the fleet's batch_re parses.
+        print(f"Resolving {n_devices} {label} devices ({len(groups)} models)")
+        found = found_devices = blocks = 0
+        for index, (company, model, members) in enumerate(groups, 1):
+            try:
+                docs = resolver.resolve_model_group(company, model, members)
+            except WafBlocked as exc:
+                blocks += 1
+                if blocks >= MAX_CONSECUTIVE_BLOCKS:
+                    print(f"blocked {blocks}x — stopping at {index}/{len(groups)}. Resolved {found}. "
+                          f"Blocked models were not marked; retry later.")
+                    return 0
+                wait = BLOCK_BACKOFF_SEC * blocks
+                print(f"[{index}/{len(groups)}] {exc} — backing off {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            blocks = 0
+            if docs:
+                found += 1
+                found_devices += len(members)
+            if index % 10 == 0 or docs:
+                print(f"[{index}/{len(groups)}] {model}: {len(docs)} docs x {len(members)} catalogs "
+                      f"(found {found} models / {found_devices} devices)")
+        print(f"done: {found}/{len(groups)} models resolved, {found_devices}/{n_devices} devices")
+        return 0
 
     rows = load_devices(args.tenant, args.batch)
     print(f"Resolving {len(rows)} {label} devices")

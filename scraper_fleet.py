@@ -145,21 +145,17 @@ TARGETS: dict[str, dict] = {
         "sleep_between": 300, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },
-    # DISABLED 2026-08-02 — same disease as BD. 13 business units means a MISS costs one request
-    # per unit, and Alcon's GUDID catalogs evidently are not what its portal indexes: 300 rows
-    # written, ZERO found, while taking 22 WAF blocks in 6h and dragging Stryker into collateral
-    # flags. Every one of those rows was a permanent false negative (deleted).
-    #
-    # The unit hints in qarad_tenants.py never got a chance to help, because hints only make HITS
-    # cheap and there were none. Before re-enabling, establish OFFLINE which catalog family the
-    # portal actually indexes — the earlier "1104 works" result was ALCONOX, a different company
-    # that the %alcon% pattern was falsely matching.
+    # RE-ENABLED 2026-09-02. Disabled 2026-08-02 after 300 rows / ZERO found / 22 WAF blocks,
+    # with the note "establish OFFLINE which catalog family the portal indexes". Answer: the
+    # MODEL. GUDID's Alcon catalog is model + diopter (SA6AT4.320); the portal only knows
+    # SA6AT4. The tenant now searches by model (search_key="model" in qarad_tenants.py) and
+    # writes the hit to every catalog of that model — the first 3 requests resolved 274
+    # devices. --batch counts MODELS: ~40 models is ~40-80 requests and several thousand
+    # devices, so this is far cheaper per device than any other tenant.
     "alcon": {
-        "enabled": False, "rank": 12, "host": "qarad",
-        "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "alcon", "--batch", "20"],
+        "enabled": True, "rank": 11, "host": "qarad",
+        "cmd": [PY, "-m", "resolvers.qarad_tenants", "--tenant", "alcon", "--batch", "40"],
         "batch_re": re.compile(r"Resolving (\d+) Alcon devices"),
-        # Smaller batch: Alcon spans 13 business units, so a miss costs several requests
-        # while the resolver hunts for the right one.
         "sleep_between": 360, "idle_sleep": 12 * 3600, "batch_timeout": 2400,
         "max_backoff": 4 * 3600,
     },

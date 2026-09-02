@@ -89,6 +89,8 @@ REF_ATTRIBUTE_NAMES = (
     "reference number",
     "product ref",       # Arthrex
     "ref",
+    "model number",      # Alcon — its products carry a model, not a REF; without this every
+    "model",             # hit fell through to keyCode (an internal id) and was rejected.
 )
 # Tenants name the IFU document group differently and the differences are trivial but fatal:
 # Stryker "Instructions For Use", Arthrex "Directions For Use", Baxter "Instruction for Use"
@@ -385,7 +387,9 @@ class StrykerResolver:
         if not catalog_number:
             raise ValueError("catalog_number is required.")
 
-        source_url = f"https://labeling.stryker.com/hcp/{self.country}"
+        # Per tenant: Zimmer/Arthrex/Baxter rows used to say labeling.stryker.com here, which
+        # made a Biomet miss read as "searched on Stryker's portal".
+        source_url = f"{self.ORIGIN}/hcp/{self.country}"
         error_type = None
         documents: list[dict[str, Any]] = []
         try:

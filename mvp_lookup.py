@@ -668,13 +668,39 @@ def refresh_document_url(row: dict[str, Any], db_path: str | Path = SQLITE_PATH)
     # resolver for a Zimmer doc finds nothing and the stored (expired) URL leaks
     # through -> 403 at fetch time.
     family = str(row.get("manufacturer_family") or "").lower()
-    if "zimmer" in family or "biomet" in family:
-        from resolvers.zimmer_resolver import ZimmerBiometResolver as _Resolver
-    else:
-        from resolvers.stryker_resolver import StrykerResolver as _Resolver
+    from resolvers.qarad_tenants import TENANTS, QaradTenantResolver
 
     try:
-        fresh = _Resolver(db_path=db_path).fresh_document_url(catalog, str(source_file_name))
+        if "zimmer" in family or "biomet" in family:
+            from resolvers.zimmer_resolver import ZimmerBiometResolver
+            resolver = ZimmerBiometResolver(db_path=db_path)
+        elif family in TENANTS:
+            # Arthrex/Baxter/Alcon/CooperSurgical mint per tenant too; asking Stryker's
+            # tenant for their file found nothing and leaked the expired URL through.
+            resolver = QaradTenantResolver(family, db_path=db_path)
+        else:
+            from resolvers.stryker_resolver import StrykerResolver
+            resolver = StrykerResolver(db_path=db_path)
+        terms = [catalog]
+        if TENANTS.get(family, {}).get("search_key") == "model":
+            # Model-keyed tenants (Alcon) were resolved by the device's model, and the
+            # catalog is a sub-variant the portal cannot find.
+            conn = db_connect(db_path)
+            try:
+                hit = conn.execute(
+                    "select model_number from devices where catalog_number = ? "
+                    "and model_number is not null and trim(model_number) != '' limit 1",
+                    (catalog,),
+                ).fetchone()
+            finally:
+                conn.close()
+            if hit and hit[0]:
+                terms.insert(0, str(hit[0]).strip())
+        fresh = None
+        for term in terms:
+            fresh = resolver.fresh_document_url(term, str(source_file_name))
+            if fresh:
+                break
     except Exception:
         # Re-mint can fail (WAF block, network): never let it crash a request.
         # The stored URL will 403 at fetch, which the caller handles as a miss.
