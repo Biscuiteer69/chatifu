@@ -133,12 +133,15 @@ def refs_from_item(item: dict[str, Any]) -> list[str]:
     return refs
 
 
-# Stryker's tenant attaches a stub named "Placeholder Document" to products whose IFU has not
-# been uploaded yet. The PDF is one page of lorem ipsum ("IFU 1 B V2"). It is a real file
-# on the portal, current, English, and under the IFU document group, so every structural
-# filter passed it, and 6,312 catalogs were served it as their exact_catalog IFU
-# (found 2026-09-02). A stub is a not_found with extra steps.
-PLACEHOLDER_TITLE_RE = re.compile(r"placeholder", re.I)
+# Qarad tenants attach a stub to products whose IFU has not been uploaded: Stryker's is a
+# document named "Placeholder Document" (file "IFU 1 B V2"), Zimmer Biomet's is "Zimvie -
+# Legacy IFU" with file "dummy.pdf", Baxter's "Legacy document - Vantive" with file "Dummy".
+# Every one is a page of lorem ipsum. They are real files on the portal, current, English,
+# and under the IFU document group, so every structural filter passed them, and 17,009
+# catalogs were served lorem ipsum as their exact_catalog IFU (found 2026-09-02). A stub
+# is a not_found with extra steps. Checked against BOTH the document name and the file
+# name, because each tenant marks it in a different place.
+PLACEHOLDER_TITLE_RE = re.compile(r"placeholder|dummy|lorem\s+ipsum", re.I)
 
 
 def is_placeholder_document(name: str | None) -> bool:

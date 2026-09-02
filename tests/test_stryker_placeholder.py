@@ -7,7 +7,10 @@ from resolvers.stryker_resolver import StrykerResolver, is_placeholder_document
 def test_placeholder_names_are_recognised():
     assert is_placeholder_document("Placeholder Document")
     assert is_placeholder_document("IFU placeholder")
+    assert is_placeholder_document("dummy.pdf")       # Zimmer Biomet: "Zimvie - Legacy IFU"
+    assert is_placeholder_document("Dummy")           # Baxter: "Legacy document - Vantive"
     assert not is_placeholder_document("Triathlon Total Knee System IFU")
+    assert not is_placeholder_document("Zimvie - Legacy IFU")  # only the FILE name gives it away
     assert not is_placeholder_document(None)
 
 
