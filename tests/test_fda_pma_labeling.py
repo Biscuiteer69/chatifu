@@ -110,3 +110,38 @@ def test_company_filter_limits_the_batch(db: Path, monkeypatch):
     monkeypatch.setattr(fda.time, "sleep", lambda s: None)
     stats = fda.resolve_labeling_batch(10, db, companies=["%boston scientific%"])
     assert stats["documents"] == 2 and stats["devices_linked"] == 2
+
+
+def test_throttle_answers_are_not_cached_and_stop_the_batch(db: Path, monkeypatch):
+    """accessdata answers 403 when it throttles (verified 2026-09-02: 831 of them, all 200 later).
+    A throttled key must stay pending, and three in a row must end the batch."""
+    heads: list[str] = []
+    sleeps: list[float] = []
+    monkeypatch.setattr(fda, "_head", lambda url: (heads.append(url), ("http_403", 0))[1])
+    monkeypatch.setattr(fda.time, "sleep", lambda s: sleeps.append(s))
+    conn = sqlite3.connect(db)
+    conn.execute("insert into devices (company_name, brand_name, model_number, catalog_number, raw_json)"
+                 " values ('Acme', 'Newer', '', 'NEW1', ?)", (json.dumps({"PrimaryDI": "00000000000002"}),))
+    conn.execute("insert into pma_supplements values ('00000000000002', 'P150001', '000')")
+    conn.execute("insert into device_di select id, '00000000000002', 'NEW1' from devices where catalog_number='NEW1'")
+    conn.commit()
+    conn.close()
+
+    stats = fda.resolve_labeling_batch(10, db)
+    assert stats["found"] == 0
+    # First key throttled -> no fallback HEAD for the PMA, backoff, next key; the pre-1996
+    # PMA needs no request and does not count as the throttle lifting; third HEAD stops.
+    assert len(heads) == 3
+    assert sleeps == [fda.THROTTLE_BACKOFF_SEC, 2 * fda.THROTTLE_BACKOFF_SEC]
+    conn = sqlite3.connect(db)
+    cached = {r[0]: r[1] for r in conn.execute("select doc_key, status from fda_labeling")}
+    assert not any(v.startswith("http_") for v in cached.values())
+    assert conn.execute("select count(*) from ifu_links where manufacturer_family='fda_pma_labeling'").fetchone()[0] == 0
+    # Everything the throttle hid is still pending for the next run.
+    assert len(fda._pending_labeling(conn, 10, None)) == 4
+
+
+def test_404_is_a_verdict_and_other_statuses_are_not():
+    assert not fda.is_transient("not_found") and not fda.is_transient("found") and not fda.is_transient("no_url")
+    assert fda.is_transient("http_403") and fda.is_transient("http_503") and fda.is_transient("error:URLError")
+    assert not fda.is_transient("http_404")

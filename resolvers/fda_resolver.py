@@ -59,6 +59,11 @@ BASE = "https://www.accessdata.fda.gov/cdrh_docs"
 MANUFACTURER_FAMILY = "fda_510k"
 STATUS = "fda_summary"          # deliberately NOT terminal — see module docstring
 DELAY_SEC = 1.0                 # public .gov bulk endpoint; stay polite regardless
+# The labeling sweep found accessdata's limit: ~500 HEADs at 1/s and it starts answering 403.
+# Slower, and back off hard on the first throttle answer rather than walking through 800 more.
+LABELING_DELAY_SEC = 2.5
+THROTTLE_BACKOFF_SEC = 90.0
+MAX_THROTTLE_HITS = 3
 UA = "Mozilla/5.0 (compatible; ChatIFU/1.0; +https://chatifu.com)"
 
 
@@ -265,10 +270,22 @@ def fetch_labeling(conn: sqlite3.Connection, submission: str, supplement: str) -
         status, size = "no_url", 0
     else:
         status, size = _head(url)
+    if is_transient(status):
+        # A throttle answer says nothing about the document. Caching it would have written
+        # "http_403" as this PMA's permanent verdict — which is exactly what the first full
+        # sweep did for 889 keys before this guard existed.
+        return {"key": key, "document_url": None, "status": status, "transient": True}
     conn.execute("insert or replace into fda_labeling values(?,?,?,?,?,?,?)",
                  (key, submission, supp, url if status == "found" else None, status, size, now))
     conn.commit()
     return {"key": key, "document_url": url if status == "found" else None, "status": status}
+
+
+def is_transient(status: str) -> bool:
+    """accessdata answers 403 (not 404) when it throttles: on 2026-09-02 a 1 req/s sweep got
+    831 of them from document ~515 on, interleaved with real 200s, and every one HEADed 200
+    again afterwards. 404 is the only HTTP status that is a verdict on the file."""
+    return (status.startswith("http_") and status != "http_404") or status.startswith("error:")
 
 
 def _pending_labeling(conn: sqlite3.Connection, limit: int, companies: list[str] | None) -> list[tuple[str, str, int]]:
@@ -325,10 +342,10 @@ def resolve_labeling_batch(limit: int, db_path: str | Path = SQLITE_PATH,
         ensure_labeling_tables(conn)
         pending = _pending_labeling(conn, limit, companies)
         print(f"Resolving {len(pending)} PMA labeling documents")
-        found = linked = 0
+        found = linked = throttled = 0
         for i, (sub, supp, devices) in enumerate(pending, 1):
             res = fetch_labeling(conn, sub, supp)
-            if res["status"] != "found" and supp != "000":
+            if res["status"] != "found" and supp != "000" and not res.get("transient"):
                 # No labeling filed with this supplement: the PMA's own approved labeling
                 # still covers the device, at an older revision.
                 res = fetch_labeling(conn, sub, "000")
@@ -336,8 +353,17 @@ def resolve_labeling_batch(limit: int, db_path: str | Path = SQLITE_PATH,
                 found += 1
                 linked += link_labeling(conn, sub, supp, res["document_url"])
             print(f"[{i}/{len(pending)}] {sub}S{supp} -> {res['key']}: {res['status']} ({devices} devices)")
-            if not res.get("cached"):
-                time.sleep(DELAY_SEC)
+            if res.get("transient"):
+                throttled += 1
+                if throttled >= MAX_THROTTLE_HITS:
+                    # Nothing was cached for the throttled keys, so they head the next run.
+                    print(f"throttled {throttled}x — stopping at {i}/{len(pending)}; retry later")
+                    break
+                time.sleep(THROTTLE_BACKOFF_SEC * throttled)
+                continue
+            if not res.get("cached") and res["status"] != "no_url":
+                throttled = 0                    # a real answer: the throttle has lifted
+                time.sleep(LABELING_DELAY_SEC)
         return {"documents": len(pending), "found": found, "devices_linked": linked}
     finally:
         conn.close()
