@@ -26,6 +26,8 @@ from resolvers.medtronic_resolver import (
     qualifying_rows,
     recently_tried_brands,
     run_by_brand,
+    autocomplete_term,
+    spelled_as,
     title_from_file_name,
 )
 
@@ -62,14 +64,21 @@ ZEVO = [
 class StubResolver(MedtronicResolver):
     """No network: brand -> rows comes from a dict, and every lookup is counted."""
 
-    def __init__(self, db_path: Path, catalogue: dict[str, list[dict]]) -> None:
+    def __init__(self, db_path: Path, catalogue: dict[str, list[dict]],
+                 suggestions: dict[str, list[str]] | None = None) -> None:
         super().__init__(db_path=db_path, delay_sec=0)
         self.catalogue = {k.lower(): v for k, v in catalogue.items()}
+        self.suggestions = {k.lower(): v for k, v in (suggestions or {}).items()}
         self.queries: list[str] = []
+        self.terms: list[str] = []
 
     def search_brand(self, brand: str) -> list[dict]:
         self.queries.append(brand)
         return list(self.catalogue.get(brand.lower(), []))
+
+    def suggest_brands(self, term: str) -> list[str]:
+        self.terms.append(term)
+        return list(self.suggestions.get(term.lower(), []))
 
 
 def make_db(path: Path, devices: list[tuple[str, str, str, str]]) -> None:
@@ -317,3 +326,29 @@ def test_dry_run_writes_nothing(db: Path):
     assert stats["devices_matched"] == 2
     assert stats["rows_written"] == 0
     assert links(db) == []
+
+
+def test_autocomplete_rescues_a_respelled_brand_only_when_the_letters_agree():
+    assert autocomplete_term("Ti-Cron") == "cron"          # "ti" is too short to type
+    assert autocomplete_term("Paradigm REAL-Time Revel") == "paradigm"
+    assert autocomplete_term("CD HORIZON") == "horizon"
+    assert autocomplete_term("X2 4.5") is None
+    assert spelled_as("Ti-Cron", ["TI CRON", "TICRON PLUS"]) == "TI CRON"
+    assert spelled_as("ARTIC-L", ["ARTiC-L 3D Ti", "ARTiC-XL 3D Ti"]) is None
+    assert spelled_as("Shiley", []) is None
+
+
+def test_dead_brand_gets_one_autocomplete_request_then_is_recorded(tmp_path: Path):
+    db = tmp_path / "ticron.sqlite3"
+    make_db(db, [("Covidien LP", "Ti-Cron", "88863", "Coated Polyester Suture"),
+                 ("Covidien LP", "ZUMA", "88864", "Bipolar Forceps")])
+    ticron = [row("Ti-Cron Coated Polyester Suture", "Instructions for Use", "PT00300001")]
+    resolver = StubResolver(db, {"TI CRON": ticron}, suggestions={"cron": ["TI CRON"], "zuma": []})
+    groups = group_by_brand(load_medtronic_brand_devices(db))
+    stats = run_by_brand(resolver, groups, apply=True)
+    assert resolver.terms == ["cron", "zuma"]
+    assert resolver.queries == ["Ti-Cron", "TI CRON", "ZUMA"]
+    assert stats["brands_respelled"] == 1 and stats["brands_no_rows"] == 1
+    assert [r["document_url"] for r in links(db)] == [ticron[0]["pdf_url"]]
+    # Both outcomes are remembered: the respelled hit and the brand that is not here.
+    assert recently_tried_brands(db) == {"ti-cron", "zuma"}

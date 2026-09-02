@@ -91,6 +91,7 @@ _TITLE_RE = re.compile(r"<td[^>]*>\s*([^<>{}]{6,120}?)\s*(?:<br|</td)", re.S)
 # --- brand path -------------------------------------------------------------
 BRAND_MATCH_CONFIDENCE = "brand_family_match"
 SEARCH_PATH = "/manuals/main/en_US/manual/index"
+BRAND_AUTOCOMPLETE_PATH = "/manuals/main/en_US/home/brandAutoList"
 MAX_BRAND_CANDIDATES = 4
 MIN_BRAND_LEN = 4
 MIN_TOKEN_LEN = 4
@@ -243,6 +244,18 @@ class MedtronicResolver:
         rows = [] if "No Results Found" in html else brand_rows_from_results(html)
         self._brand_cache[key] = rows
         return rows
+
+    def suggest_brands(self, term: str) -> list[str]:
+        """The portal's brand autocomplete: substring match on the brand list, capped at
+        100 (2026-09-02: "shil" -> SHILEY, SHILLA; "zuma"/"para"/"syn..." showed ZUMA,
+        Paradigm and Syneture are simply not on this portal). One request; tells apart
+        "spelled differently" from "not here" without guessing."""
+        self.ensure_session()
+        body = self._get(BRAND_AUTOCOMPLETE_PATH, {"term": term})
+        try:
+            return [str(item["value"]) for item in json.loads(body) if item.get("value")]
+        except (ValueError, TypeError, AttributeError):
+            return []
 
     def log_brand_results(
         self,
@@ -548,6 +561,34 @@ def brand_queries(brand: str) -> list[str]:
     return queries
 
 
+def _alnum(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", _TRADEMARK_RE.sub(" ", text).lower())
+
+
+def autocomplete_term(brand: str) -> str | None:
+    """What to type into the brand autocomplete for a brand the search did not know:
+    its first significant token (MIN_BRAND_LEN+ letters). Nothing for brands that are
+    all short/stop words — a term like "CD" would list half the portal."""
+    for token in significant_tokens(brand):
+        if len(token) >= MIN_BRAND_LEN and token.isalpha():
+            return token
+    return None
+
+
+def spelled_as(brand: str, suggestions: list[str]) -> str | None:
+    """The portal's own spelling of `brand` among autocomplete suggestions: same letters
+    and digits once marks, spaces and punctuation are dropped ("ARTIC-L" = "ARTiC-L 3D"
+    is NOT the same brand; "Ti-Cron" = "TI CRON" is). Anything looser would re-open
+    the first-word fallback's mistakes with a different door."""
+    want = _alnum(brand)
+    if not want:
+        return None
+    for suggestion in suggestions:
+        if _alnum(suggestion) == want:
+            return suggestion
+    return None
+
+
 def significant_tokens(text: str | None) -> list[str]:
     """Ordered, de-duplicated comparison tokens: 4+ characters, not a stop-word,
     not a bare number, lightly de-pluralised so "tubes" meets "tube"."""
@@ -850,7 +891,8 @@ def run_by_brand(
     sampled: set[str] = set()
     """Resolve brand groups; writes only when apply=True. Returns run statistics."""
     stats: dict[str, Any] = {
-        "brands": 0, "brands_full": 0, "brands_first_word": 0, "brands_no_rows": 0,
+        "brands": 0, "brands_full": 0, "brands_first_word": 0, "brands_respelled": 0,
+        "brands_no_rows": 0,
         "devices": 0, "devices_matched": 0, "rows_written": 0,
         "manual_types": Counter(), "candidates": Counter(), "samples": [],
     }
@@ -866,12 +908,25 @@ def run_by_brand(
                 used = query
                 break
         if not rows:
+            # One autocomplete request separates "spelled differently here" from "not on
+            # this portal" (ZUMA, Paradigm, Syneture); a same-letters suggestion is retried.
+            term = autocomplete_term(brand)
+            spelling = spelled_as(brand, resolver.suggest_brands(term)) if term else None
+            if spelling and spelling.lower() != brand.lower():
+                rows = resolver.search_brand(spelling)
+                if rows:
+                    used = spelling
+                    stats["brands_respelled"] += 1
+        if not rows:
             stats["brands_no_rows"] += 1
             print(f"brand {brand!r} ({len(devices)} devices): no results for {brand_queries(brand)}")
             if apply:
                 record_brand_run(resolver.db_path, brand, 0, len(devices), 0)
             continue
-        stats["brands_full" if used == brand else "brands_first_word"] += 1
+        if used == brand:
+            stats["brands_full"] += 1
+        elif used in brand_queries(brand):
+            stats["brands_first_word"] += 1
         stats["manual_types"].update(row["manual_type"] or "(none)" for row in rows)
         matched = 0
         brand_samples = 0
@@ -979,7 +1034,8 @@ def main() -> None:
         print(
             f"\ndone: {stats['devices_matched']}/{stats['devices']} devices matched across "
             f"{stats['brands']} brands (full-brand hits {stats['brands_full']}, first-word hits "
-            f"{stats['brands_first_word']}, no rows {stats['brands_no_rows']}); "
+            f"{stats['brands_first_word']}, respelled {stats['brands_respelled']}, "
+            f"no rows {stats['brands_no_rows']}); "
             f"{stats['rows_written']} rows written; {resolver.request_count} portal requests"
         )
         return
