@@ -196,6 +196,16 @@ def fetch_ifu_rows(
     conn = db_connect(db_path)
     try:
         rows = _select_rows(conn, "catalog_number = ?", catalog_number)
+        family = family_for_company(company_name)
+        if family:
+            # An exact string match is only "always safe" within one maker. Catalog
+            # numbers are not globally unique: `11111` is a J&J HEALIX anchor REF and a
+            # Stryker GmbH device asking for it must not be handed that IFU. Rows from
+            # another KNOWN maker are dropped; unattributed rows (FDA summaries,
+            # legacy family labels) are kept so nothing already servable goes dark.
+            rows = [r for r in rows
+                    if (r.get("manufacturer_family") or "") == family
+                    or (r.get("manufacturer_family") or "") not in FAMILY_COMPANY_HINTS]
         # Fall through on a `not_found` outcome row, not merely on no row at all.
         # The common shape is exactly that: a resolver probed the GUDID catalog
         # `45-20004`, failed, and wrote not_found — while the document had been
@@ -204,7 +214,6 @@ def fetch_ifu_rows(
         if any(r.get("status") == "found" and r.get("document_url") for r in rows):
             return rows
 
-        family = family_for_company(company_name)
         if not family:
             return rows   # unknown maker — cannot vouch for anything but an exact hit
         if "catalog_key" not in table_columns_all(conn, "ifu_links"):
