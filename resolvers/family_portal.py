@@ -112,6 +112,7 @@ def load_index(name: str, builder: Callable[[], dict[str, Any]], refresh: bool =
                verbose: bool = True) -> dict[str, Any]:
     """Cached portal mirror. Rebuilt only when missing, forced, or older than INDEX_MAX_AGE."""
     path = INDEX_DIR / f"{name}_ifu_index.json"
+    stale: dict[str, Any] | None = None
     if not refresh and path.exists():
         index = json.loads(path.read_text())
         built = datetime.fromisoformat(index.get("built_at", "1970-01-01T00:00:00+00:00"))
@@ -119,7 +120,21 @@ def load_index(name: str, builder: Callable[[], dict[str, Any]], refresh: bool =
             return index
         if verbose:
             print("index stale; refetching")
-    index = builder()
+        stale = index
+    try:
+        index = builder()
+    except Exception as exc:  # noqa: BLE001 - the portal, not the join, is what fails
+        if stale is None or not stale.get("products"):
+            raise
+        # The join is local; only the refresh needs the portal. NuVasive sat behind a
+        # Cloudflare JS challenge for a month (2026-09-02) and every batch died here
+        # before resolving a single device from a perfectly usable 28-day-old mirror.
+        # Phrased so scraper_fleet's WAF_SIGNS don't flag a batch that is about to succeed;
+        # the refresh cadence is the portal's problem, the join is not.
+        if verbose:
+            print(f"refresh unavailable ({type(exc).__name__}); using the stale index "
+                  f"built {stale.get('built_at')}")
+        return stale
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(index, indent=1))
     if verbose:
