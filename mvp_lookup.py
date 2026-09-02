@@ -36,7 +36,11 @@ STATUS_PRIORITY = {
     # A real manufacturer IFU, but one no portal asserted for THIS identifier, so it ranks
     # below every portal-asserted tier and above anything unverified.
     ("found", "sibling_inferred"): 4,
-    ("candidate_broad", "search_result"): 5,
+    # FDA-approved PMA labeling (resolvers/fda_resolver.py --pma-labeling): the manufacturer's
+    # IFU as approved, i.e. real instructions, warnings and contraindications — but the
+    # approval-time revision, so every portal-sourced tier outranks it.
+    ("found", "fda_pma_labeling"): 5,
+    ("candidate_broad", "search_result"): 6,
     # An FDA 510(k)/PMA summary. Ranked below EVERY manufacturer-sourced tier, including an
     # unverified one, because it is a different kind of document: it carries indications and
     # intended use but no instructions, warnings or contraindications. It is a floor, not a
@@ -46,9 +50,9 @@ STATUS_PRIORITY = {
     # which happened to be 5 — the SAME rank as not_found, with ties broken by title string.
     # That is accidental rather than intended ordering, and it made "we hold a regulatory
     # summary" indistinguishable from "we hold nothing" at ~1.09M catalogs.
-    ("fda_summary", "fda_submission"): 6,
-    ("not_found", None): 7,
-    ("not_found", ""): 7,
+    ("fda_summary", "fda_submission"): 7,
+    ("not_found", None): 8,
+    ("not_found", ""): 8,
 }
 DEFAULT_WARNING = (
     "ChatIFU searches manufacturer IFU sources. "
@@ -256,9 +260,9 @@ def row_priority(row: dict[str, Any]) -> tuple[int, str]:
         # measured: all 2,128 of them have an empty document_url, so one can never be served.
         # When it once tied candidate_broad and outranked fda_summary, 864 catalogs returned
         # nothing while a usable document sat one row lower.
-        priority = 9
+        priority = 10
     else:
-        priority = 8
+        priority = 9
     return priority, str(row.get("document_title") or row.get("document_url") or "")
 
 

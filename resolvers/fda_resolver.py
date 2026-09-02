@@ -30,6 +30,12 @@ Usage:
     python -m resolvers.fda_resolver --load-submissions        # one-time index build
     python -m resolvers.fda_resolver --batch 200               # resolve a batch
     python -m resolvers.fda_resolver --submission K172521      # single lookup
+    python -m resolvers.fda_resolver --pma-labeling 200        # PMA approved labeling (servable)
+
+PMA APPROVED LABELING is the exception to "not an IFU": FDA publishes the labeling it approved
+under a C suffix (P200045C.pdf, P200045S002C.pdf per supplement). That is the manufacturer's
+instructions for use at approval time, so --pma-labeling writes it as status=found under
+manufacturer_family fda_pma_labeling, ranked below every portal tier in mvp_lookup.
 """
 from __future__ import annotations
 
@@ -69,6 +75,26 @@ def _doc_url(submission: str) -> str | None:
     # PMA/HDE publish the SSED under a B suffix; 510(k) summaries use the bare number.
     name = f"{sub}B" if sub[0] in ("P", "H") else sub
     return f"{BASE}/{folder}/{name}.pdf"
+
+
+def labeling_url(submission: str, supplement: str | int | None = None) -> str | None:
+    """FDA-APPROVED LABELING for a PMA — the manufacturer's IFU as approved, published
+    under a C suffix next to the SSED (B): P200045C.pdf, and per supplement
+    P200045S002C.pdf (verified 2026-09-02: P110010C 2.6MB, P030016S035C, P200045S002C).
+    Unlike the summary this IS instructions for use, so it is servable — ranked below
+    every manufacturer-portal tier because it is the approval-time revision.
+    Pre-1996 PMAs have no folder, and their supplements' labeling is not under the
+    PMA's year folder either (P860019S205C 404) — those stay out."""
+    sub = (submission or "").strip().upper()
+    if not sub or sub[0] not in ("P", "H"):
+        return None
+    base = _doc_url(sub)
+    if not base:
+        return None
+    supp = str(supplement or "").strip()
+    if supp and supp.isdigit() and int(supp) > 0:
+        return base.replace(f"{sub}B.pdf", f"{sub}S{int(supp):03d}C.pdf")
+    return base.replace(f"{sub}B.pdf", f"{sub}C.pdf")
 
 
 def ensure_tables(conn: sqlite3.Connection) -> None:
@@ -174,6 +200,149 @@ def link_devices(conn: sqlite3.Connection, submission: str, url: str) -> int:
     return n
 
 
+# --- PMA approved labeling ---------------------------------------------------
+LABELING_FAMILY = "fda_pma_labeling"
+LABELING_CONFIDENCE = "fda_pma_labeling"
+LABELING_STATUS = "found"       # servable: it is the IFU, at its approval-time revision
+
+
+def ensure_labeling_tables(conn: sqlite3.Connection) -> None:
+    ensure_tables(conn)
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(ifu_links)")}
+    if "source_file_name" not in columns:
+        conn.execute("ALTER TABLE ifu_links ADD COLUMN source_file_name TEXT")
+    conn.execute("""create table if not exists pma_supplements(
+        primary_di text not null, submission_number text not null, supplement text not null)""")
+    conn.execute("create index if not exists idx_pmas_di on pma_supplements(primary_di)")
+    conn.execute("create index if not exists idx_pmas_sub on pma_supplements(submission_number, supplement)")
+    conn.execute("""create table if not exists fda_labeling(
+        doc_key text primary key, submission_number text, supplement text,
+        document_url text, status text, bytes integer, checked_at text)""")
+    conn.commit()
+
+
+def load_pma_supplements(conn: sqlite3.Connection, zip_path: Path = GUDID_ZIP) -> int:
+    """PMA rows WITH their supplement number (premarket_submissions dropped it). A device
+    approved under supplement 35 has its labeling at P030016S035C, not P030016C."""
+    ensure_labeling_tables(conn)
+    if conn.execute("select count(*) from pma_supplements").fetchone()[0]:
+        return 0
+    with zipfile.ZipFile(zip_path) as z, z.open(SUBMISSIONS_MEMBER) as fh:
+        reader = csv.reader(io.TextIOWrapper(fh, encoding="utf-8", errors="replace"), delimiter="|")
+        next(reader, None)
+        conn.executemany(
+            "insert into pma_supplements values(?,?,?)",
+            ((row[0], row[1].strip().upper(), (row[2] if len(row) > 2 else "000").strip() or "000")
+             for row in reader if len(row) >= 2 and row[1][:1].upper() in ("P", "H")),
+        )
+    conn.commit()
+    return conn.execute("select count(*) from pma_supplements").fetchone()[0]
+
+
+def _head(url: str) -> tuple[str, int]:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA}, method="HEAD")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            size = int(resp.headers.get("Content-Length") or 0)
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            return ("found" if resp.status == 200 and "pdf" in ctype else "not_pdf"), size
+    except urllib.error.HTTPError as exc:
+        return ("not_found" if exc.code == 404 else f"http_{exc.code}"), 0
+    except Exception as exc:  # noqa: BLE001 - stay fail-soft
+        return f"error:{type(exc).__name__}", 0
+
+
+def fetch_labeling(conn: sqlite3.Connection, submission: str, supplement: str) -> dict:
+    """Availability of one (PMA, supplement) labeling PDF, cached in fda_labeling."""
+    supp = supplement if supplement and supplement != "000" else "000"
+    key = f"{submission}S{supp}" if supp != "000" else submission
+    row = conn.execute("select document_url, status from fda_labeling where doc_key=?", (key,)).fetchone()
+    if row:
+        return {"key": key, "document_url": row[0], "status": row[1], "cached": True}
+    url = labeling_url(submission, None if supp == "000" else supp)
+    now = datetime.now(timezone.utc).isoformat()
+    if not url:
+        status, size = "no_url", 0
+    else:
+        status, size = _head(url)
+    conn.execute("insert or replace into fda_labeling values(?,?,?,?,?,?,?)",
+                 (key, submission, supp, url if status == "found" else None, status, size, now))
+    conn.commit()
+    return {"key": key, "document_url": url if status == "found" else None, "status": status}
+
+
+def _pending_labeling(conn: sqlite3.Connection, limit: int, companies: list[str] | None) -> list[tuple[str, str, int]]:
+    """(PMA, supplement) pairs covering devices with no servable IFU, most devices first.
+    Restricting to `companies` (SQL LIKE patterns) keeps a batch on the makers that matter."""
+    where = ""
+    params: list = []
+    if companies:
+        where = " and (" + " or ".join("lower(d.company_name) like ?" for _ in companies) + ")"
+        params = [c.lower() for c in companies]
+    return conn.execute(f"""
+        select s.submission_number, s.supplement, count(distinct dd.rw) n
+        from pma_supplements s
+        join device_di dd on dd.di = s.primary_di
+        join devices d on d.rowid = dd.rw
+        where not exists (select 1 from fda_labeling f
+                          where f.submission_number = s.submission_number and f.supplement = s.supplement)
+          and not exists (select 1 from ifu_links l indexed by idx_ifu_catalog
+                          where l.catalog_number = dd.ident and l.status = 'found'){where}
+        group by s.submission_number, s.supplement
+        order by n desc
+        limit ?""", (*params, limit)).fetchall()
+
+
+def link_labeling(conn: sqlite3.Connection, submission: str, supplement: str, url: str) -> int:
+    """One servable row per device approved under this (PMA, supplement)."""
+    rows = conn.execute("""
+        select dd.rw, dd.di, dd.ident from device_di dd
+        join pma_supplements s on s.primary_di = dd.di
+        where s.submission_number = ? and s.supplement = ?""", (submission, supplement)).fetchall()
+    now = datetime.now(timezone.utc).isoformat()
+    label = submission if supplement == "000" else f"{submission} supplement {int(supplement)}"
+    title = f"FDA-approved labeling (PMA {label})"
+    n = 0
+    for rowid, di, ident in rows:
+        if not ident:
+            continue
+        conn.execute("""insert or ignore into ifu_links
+            (device_rowid, primary_di, catalog_number, manufacturer_family, source_url,
+             document_url, document_title, language, match_confidence, retrieved_at, status,
+             first_seen_at, last_checked_at, last_success_at, source_file_name)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (rowid, di, ident, LABELING_FAMILY, url, url, title, "en",
+             LABELING_CONFIDENCE, now, LABELING_STATUS, now, now, now, url.rsplit("/", 1)[-1]))
+        n += 1
+    conn.commit()
+    return n
+
+
+def resolve_labeling_batch(limit: int, db_path: str | Path = SQLITE_PATH,
+                           companies: list[str] | None = None) -> dict:
+    conn = sqlite3.connect(db_path, timeout=60.0)
+    try:
+        ensure_labeling_tables(conn)
+        pending = _pending_labeling(conn, limit, companies)
+        print(f"Resolving {len(pending)} PMA labeling documents")
+        found = linked = 0
+        for i, (sub, supp, devices) in enumerate(pending, 1):
+            res = fetch_labeling(conn, sub, supp)
+            if res["status"] != "found" and supp != "000":
+                # No labeling filed with this supplement: the PMA's own approved labeling
+                # still covers the device, at an older revision.
+                res = fetch_labeling(conn, sub, "000")
+            if res["status"] == "found":
+                found += 1
+                linked += link_labeling(conn, sub, supp, res["document_url"])
+            print(f"[{i}/{len(pending)}] {sub}S{supp} -> {res['key']}: {res['status']} ({devices} devices)")
+            if not res.get("cached"):
+                time.sleep(DELAY_SEC)
+        return {"documents": len(pending), "found": found, "devices_linked": linked}
+    finally:
+        conn.close()
+
+
 def resolve_batch(limit: int, db_path: str | Path = SQLITE_PATH) -> dict:
     conn = sqlite3.connect(db_path, timeout=60.0)
     try:
@@ -199,8 +368,30 @@ def main() -> int:
     ap.add_argument("--load-submissions", action="store_true", help="Build the DI->submission index.")
     ap.add_argument("--batch", type=int, help="Resolve N submissions (most-devices-first).")
     ap.add_argument("--submission", help="Look up one submission number.")
+    ap.add_argument("--pma-labeling", type=int, metavar="N",
+                    help="Resolve N (PMA, supplement) approved-labeling PDFs, most devices first.")
+    ap.add_argument("--company", action="append",
+                    help="With --pma-labeling: restrict to company names matching this LIKE pattern.")
+    ap.add_argument("--top20", action="store_true",
+                    help="With --pma-labeling: restrict to company_targets.TOP_DEVICE_TARGETS makers.")
     ap.add_argument("--db", default=str(SQLITE_PATH))
     args = ap.parse_args()
+
+    if args.pma_labeling:
+        conn = sqlite3.connect(args.db, timeout=120.0)
+        try:
+            n = load_pma_supplements(conn)
+            if n:
+                print(f"pma_supplements rows: {n:,}")
+        finally:
+            conn.close()
+        companies = list(args.company or [])
+        if args.top20:
+            from company_targets import TOP_DEVICE_TARGETS
+            for target in TOP_DEVICE_TARGETS:
+                companies += list(target.get("company_patterns") or [])
+        print(resolve_labeling_batch(args.pma_labeling, args.db, companies or None))
+        return 0
 
     if args.load_submissions:
         conn = sqlite3.connect(args.db, timeout=120.0)
