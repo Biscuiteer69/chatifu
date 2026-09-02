@@ -76,8 +76,15 @@ def _remaining(conn: sqlite3.Connection, tier: str = "any") -> dict[str, int]:
                  currently answer from.
       "maker"  — a manufacturer-sourced result only. An FDA summary carries Indications for Use
                  but no instructions, so this is the real IFU gap.
+      "servable" — a `found` row, the only thing the client can actually be served. The other
+                 two tiers count a not_found row as "done": that is the scrapers' backlog, not
+                 the product's gap, and on 2026-09-02 it made 65k look like the whole problem
+                 when the top-20 servable gap was ~10x that.
     """
-    statuses = "'found','candidate_broad','not_found'"
+    if tier == "servable":
+        statuses = "'found'"
+    else:
+        statuses = "'found','candidate_broad','not_found'"
     extra = ",'fda_summary'" if tier == "any" else ""
     conn.execute("drop table if exists temp.done")
     conn.execute(
@@ -240,9 +247,11 @@ def main() -> int:
     try:
         remaining = _remaining(conn, tier="any")
         maker_only = _remaining(conn, tier="maker")
+        servable = _remaining(conn, tier="servable")
         active = sum(v for k, v in remaining.items() if k not in DISTRIBUTORS)
         distrib = sum(v for k, v in remaining.items() if k in DISTRIBUTORS)
         maker_gap = sum(v for k, v in maker_only.items() if k not in DISTRIBUTORS)
+        servable_gap = sum(v for k, v in servable.items() if k not in DISTRIBUTORS)
         quality = _coverage_quality(conn)
         prev = json.loads(STATE.read_text()) if STATE.exists() else None
         issues = _issues(conn, remaining, prev)
@@ -250,25 +259,40 @@ def main() -> int:
         conn.close()
 
     now = datetime.now(timezone.utc)
-    rate_line = ""
-    if prev:
-        hours = max(0.1, (now - datetime.fromisoformat(prev["at"])).total_seconds() / 3600)
-        moved = prev.get("active", 0) - active
-        per_day = moved / hours * 24
-        eta = f"{active / per_day:.0f}d" if per_day > 0 else "n/a (no progress)"
-        rate_line = f"{moved:+,} in {hours:.1f}h  ({per_day:,.0f}/day, ETA {eta})"
 
-    top = sorted(((v, k) for k, v in remaining.items() if v > 0 and k not in DISTRIBUTORS), reverse=True)[:5]
+    def _rate(key: str, current: int) -> str:
+        if not prev or key not in prev:
+            return ""
+        hours = max(0.1, (now - datetime.fromisoformat(prev["at"])).total_seconds() / 3600)
+        moved = prev[key] - current
+        per_day = moved / hours * 24
+        eta = f"{current / per_day:.0f}d" if per_day > 0 else "n/a (no progress)"
+        return f"{moved:+,} in {hours:.1f}h  ({per_day:,.0f}/day, ETA {eta})"
+
+    servable_rate = _rate("servable_gap", servable_gap)
+    pending_rate = _rate("active", active)
+
+    def _top(counts: dict[str, int]) -> str:
+        top = sorted(((v, k) for k, v in counts.items() if v > 0 and k not in DISTRIBUTORS),
+                     reverse=True)[:5]
+        return ", ".join(f"{k} {v:,}" for v, k in top)
+
+    # The servable gap is the headline: it is the number the client experiences. The pending
+    # count is the fleet's backlog and stays as a second line so a stall is still visible.
     body = "\n".join([
         f"ChatIFU scrape goal — {now.strftime('%Y-%m-%d %H:%M')}Z",
-        f"no document at all:      {active:,}   (device makers)",
+        f"no SERVABLE IFU:         {servable_gap:,}   (device makers, client-style: status=found)",
+        f"  {servable_rate}" if servable_rate else "",
+        f"  top: {_top(servable)}",
+        f"pending (never tried):   {active:,}   (fleet backlog)",
+        f"  {pending_rate}" if pending_rate else "",
+        f"  top: {_top(remaining)}",
         f"no MAKER IFU:            {maker_gap:,}   (FDA summary only counts here)",
         f"distributors (last):     {distrib:,}",
         f"COVERED: verified IFU {quality['verified']:,} | unverified "
         f"{quality['unverified']:,} | FDA-summary-only {quality['fda_only']:,}",
-        rate_line,
-        "top: " + ", ".join(f"{k} {v:,}" for v, k in top),
     ]).strip()
+    body = "\n".join(line for line in body.splitlines() if line.strip())
 
     print(body)
     if issues:
@@ -280,8 +304,8 @@ def main() -> int:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps({
         "at": now.isoformat(), "active": active, "distributors": distrib,
-        "maker_gap": maker_gap, "quality": quality,
-        "remaining": remaining, "issues": issues,
+        "maker_gap": maker_gap, "servable_gap": servable_gap, "quality": quality,
+        "remaining": remaining, "servable": servable, "issues": issues,
     }, indent=2))
     return 1 if issues else 0
 
